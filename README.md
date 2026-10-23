@@ -38,8 +38,8 @@ the terminal, see-through like the terminal itself. Every tap is a keystroke sen
 iOS keyboard pushing the screen around. `esc`, `tab`, `ctrl`, `alt` and arrows sit on its top row, the agent's own
 actions above it; AZERTY or QWERTY, numbers and symbols, accents on long press, repeat on hold. The TUI is resized to
 end right above it, or runs full height underneath. One key brings back the iOS keyboard (dictation, paste).
-The terminal and its keyboard share a theme (Grass by default, or Dark, Light, Homebrew, Ocean), and you pick which
-of the agent's shortcuts stay above the keys.
+The terminal and its keyboard share a theme (Grass by default, or Dark, Light, Homebrew, Ocean). The agent's
+shortcuts sit in a row that folds to one chip; the window menu can also hide individual ones.
 
 **Every key:** sticky `ctrl` / `alt` / `⇧` for the next key (from the bar or the keyboard), per-program shortcuts
 (pi: stop, new, compact, model…), arrows, `home`/`end`, `pgup`/`pgdn`, F1–F12 and symbols.

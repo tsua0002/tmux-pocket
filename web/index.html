@@ -231,6 +231,18 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .keyrow.ctx button.cur { background: var(--chat, #6ccdff); color: #04121a; border-color: transparent; }
 .keyrow.ctx button.cur small { color: #04121a; }
 .keyrow.ctx button.buf { font-family: var(--mono); font-weight: 600; }
+/* Program shortcuts: full row, folds to one chip so the terminal keeps the height. */
+.ctxstrip { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ctxstrip[hidden] { display: none; }
+.ctxstrip .ctx-toggle { flex: none; height: 34px; min-width: 34px; padding: 0 10px; border-radius: 99px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); display: grid; place-items: center; }
+.ctxstrip .ctx-toggle .i { width: 16px; height: 16px; transition: transform .18s ease; }
+.ctxstrip:not(.folded) .ctx-toggle .i { transform: rotate(180deg); }
+.ctxstrip .ctx-toggle .lbl { display: none; font: 600 12.5px var(--ui); padding: 0 2px 0 1px; }
+.ctxstrip.folded .ctx-toggle { padding: 0 12px 0 10px; gap: 4px; grid-auto-flow: column; color: var(--text); }
+.ctxstrip.folded .ctx-toggle .lbl { display: inline; }
+.ctxstrip.folded .keyrow.ctx { display: none; }
+.ctxstrip .keyrow.ctx { flex: 1; min-width: 0; padding-left: 2px; }
 .keyrow .dot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: var(--wait); margin-left: 6px; vertical-align: 1px; }
 .keygrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; margin-bottom: 12px; }
 .keygrid button { height: 44px; border-radius: 11px; background: var(--surface-3); border: 1px solid var(--line); font: 600 13.5px var(--mono); }
@@ -263,7 +275,9 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .tkb[data-alpha="clear"] { --kb-a: 18%; --kb-blur: 0px; --key-a: 11%; --fn-a: 5%; }
 .tkb[data-alpha="solid"] { --kb-a: 100%; --key-a: 15%; --fn-a: 7%; }
 @media (max-height: 740px) { .tkb { --kh: 38px; } }
-.tkb .keyrow.ctx { padding: 2px 4px 3px; touch-action: pan-x; }
+.tkb .ctxstrip { padding: 2px 4px 3px; }
+.tkb .ctxstrip .ctx-toggle { background: var(--key-fn); border-color: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); }
+.tkb .keyrow.ctx { padding: 0; touch-action: pan-x; }
 .tkb .keyrow.ctx button { background: var(--key-fn); border-color: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); font-family: var(--term-font); }
 .tkb .keyrow.ctx button small { color: inherit; opacity: .65; }
 .tkb-row { display: flex; gap: 5px; padding: 3px 2px; }
@@ -444,7 +458,12 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
         <div id="termbox" tabindex="0"><div id="termlines"></div></div>
         <button id="tobottom" type="button" aria-label="Revenir en bas" hidden><svg class="i"><use href="#i-down"/></svg></button>
         <div class="tkb" id="tkb" role="group" aria-label="Clavier du terminal" hidden>
-          <div class="keyrow ctx" id="tkb-ctx"></div>
+          <div class="ctxstrip" id="tkb-ctxstrip" hidden>
+            <button type="button" class="ctx-toggle" id="tkb-ctx-toggle" aria-expanded="true" aria-controls="tkb-ctx" aria-label="Raccourcis">
+              <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
+            </button>
+            <div class="keyrow ctx" id="tkb-ctx"></div>
+          </div>
           <div class="tkb-row tkb-acc" id="tkb-acc"></div>
           <div class="tkb-keys" id="tkb-keys"></div>
           <div class="tkb-pop" id="tkb-pop" hidden></div>
@@ -455,7 +474,12 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
       <div class="dock" id="dock">
         <button class="dock-handle" id="dock-handle" type="button" aria-label="Afficher ou masquer les touches"><i></i></button>
         <div class="keys">
-          <div class="keyrow ctx" id="ctxbar"></div>
+          <div class="ctxstrip" id="ctxstrip" hidden>
+            <button type="button" class="ctx-toggle" id="ctx-toggle" aria-expanded="true" aria-controls="ctxbar" aria-label="Raccourcis">
+              <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
+            </button>
+            <div class="keyrow ctx" id="ctxbar"></div>
+          </div>
           <div class="keyrow" id="keybar"></div>
         </div>
         <form class="composer" id="composer">
@@ -1291,9 +1315,21 @@ const PROFILES = [
     { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
 ];
 const profileOf = (w) => PROFILES.find((p) => p.match.test(w.command || '') || (p.id !== 'shell' && p.match.test(w.name || '')));
-// Shortcuts shown for a program, chosen in the window menu. pi keeps only compact by default: esc, ctrl and
-// the arrows already cover the rest.
-const ctxShown = (p) => state.ctx?.[p.id] ?? (p.id === 'pi' ? ['compacter'] : p.ctx.map((x) => x.l));
+// Shortcuts shown for a program (window menu can hide some). The row itself folds to one chip.
+const ctxShown = (p) => state.ctx?.[p.id] ?? p.ctx.map((x) => x.l);
+const ctxFolded = () => !!(W.profile && state.ctxFold?.[W.profile.id]);
+function setCtxFolded(on) {
+  if (!W.profile) return;
+  state.ctxFold = { ...state.ctxFold, [W.profile.id]: !!on };
+  save();
+  for (const id of ['ctxstrip', 'tkb-ctxstrip']) {
+    const el = $('#' + id); if (!el) continue;
+    el.classList.toggle('folded', !!on);
+    const t = el.querySelector('.ctx-toggle');
+    if (t) t.setAttribute('aria-expanded', on ? 'false' : 'true');
+  }
+  kbRefit();
+}
 
 // Generic keys; ctrl / alt / shift are sticky modifiers for the next key, from this bar or the keyboard.
 const KEYS = [
@@ -1322,6 +1358,20 @@ function drawCtx() {
   const shown = ctxShown(p);
   html += p.ctx.map((x, i) => (shown.includes(x.l) ? keyBtn(x, i, 'ctx') : '')).join('');
   if (html !== W.ctxHtml) { W.ctxHtml = html; $('#ctxbar').innerHTML = html; $('#tkb-ctx').innerHTML = html; }
+  const has = !!html;
+  const folded = ctxFolded();
+  for (const id of ['ctxstrip', 'tkb-ctxstrip']) {
+    const el = $('#' + id); if (!el) continue;
+    el.hidden = !has;
+    el.classList.toggle('folded', folded);
+    const t = el.querySelector('.ctx-toggle');
+    if (t) {
+      t.setAttribute('aria-expanded', folded ? 'false' : 'true');
+      const n = el.querySelectorAll('.keyrow.ctx button').length;
+      const lbl = t.querySelector('.lbl');
+      if (lbl) lbl.textContent = n > 1 ? `raccourcis · ${n}` : 'raccourcis';
+    }
+  }
 }
 
 // tmux key name with the armed modifiers, e.g. C-M-Left, S-Up, C-o. Shift on a letter is the capital letter.
@@ -1356,6 +1406,11 @@ function onKeyRow(e) {
 $('#keybar').addEventListener('click', onKeyRow);
 $('#ctxbar').addEventListener('click', onKeyRow);
 $('#tkb-ctx').addEventListener('click', onKeyRow);
+const onCtxToggle = (e) => { e.preventDefault(); setCtxFolded(!ctxFolded()); };
+$('#ctx-toggle').addEventListener('click', onCtxToggle);
+$('#tkb-ctx-toggle').addEventListener('click', onCtxToggle);
+// Fold toggle is inside the keyboard: don't let the key handler steal the tap.
+$('#tkb-ctx-toggle').addEventListener('pointerdown', (e) => { e.stopPropagation(); });
 function openMoreKeys() {
   openSheet(`<h3>Touches</h3>
     <div class="keygrid">${KEYS.filter((x) => x.mod).map((x) => keyBtn(x, KEYS.indexOf(x), 'keys')).join('')}</div>
@@ -2095,7 +2150,7 @@ $('#tkb').addEventListener('pointerup', () => {
 $('#tkb').addEventListener('pointercancel', kbRelease);
 // No native gesture on the keys (double-tap zoom, callout, text selection): iOS would cancel the tap.
 // The shortcut row keeps its horizontal scroll.
-$('#tkb').addEventListener('touchstart', (e) => { if (!e.target.closest('.keyrow')) e.preventDefault(); }, { passive: false });
+$('#tkb').addEventListener('touchstart', (e) => { if (!e.target.closest('.keyrow, .ctx-toggle')) e.preventDefault(); }, { passive: false });
 // Opening the iOS keyboard needs a user gesture iOS accepts for focus(): touchend for touch, click for a mouse.
 const kbToSystem = (e) => {
   const b = e.target.closest('button[data-r]');
@@ -2125,7 +2180,7 @@ $('#win-menu').addEventListener('click', () => {
     <div class="chips" id="themes">${Object.entries(THEMES).map(([id, t]) => `<button type="button" data-theme="${id}" class="theme${(state.theme || 'grass') === id ? ' on' : ''}" style="--sw-bg:${t.bg};--sw-fg:${t.fg}">${esc(t.name)}</button>`).join('')}</div>
     ${W.profile.ctx.length ? `<div class="sub">Raccourcis ${esc(W.profile.id === 'agent' ? 'des agents' : `de ${W.profile.id}`)}</div>
     <div class="chips" id="ctxpick">${W.profile.ctx.map((x) => `<button type="button" data-l="${esc(x.l)}" class="${ctxShown(W.profile).includes(x.l) ? 'on' : ''}">${esc(x.l)}</button>`).join('')}</div>
-    <p class="hint">Touche un raccourci pour l'afficher ou le cacher au-dessus du clavier.</p>` : ''}
+    <p class="hint">Touche un raccourci pour l'afficher ou le cacher. La rangée se replie en une puce au-dessus du clavier.</p>` : ''}
     <div class="list menu" style="margin-top:16px">
       <button class="row" data-a="kill"><div class="main"><b style="color:var(--danger)">Fermer la fenêtre</b><small>tmux kill-window</small></div></button>
     </div>`, (el) => {
