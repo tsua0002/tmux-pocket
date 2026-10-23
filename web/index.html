@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
-<meta name="tmux-pocket-ui" content="ui-compact-1">
+<meta name="tmux-pocket-ui" content="codeaf-chat-1">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
 /* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
@@ -870,7 +870,9 @@ const Sim = (() => {
   mk('main', 'shell', 'shell', { lines: [shellPrompt() + 'git pull', 'Already up to date.', shellPrompt() + 'ls', `${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`] });
   mk('main', 'codeaf', 'agent', { style: 'pi', cmd: 'codeaf', items: [
     { role: 'user', text: 'Prépare un /senior-dev sur tmux-pocket' },
-    { role: 'agent', text: 'CodeAF prêt — usine d’agents locale. Lance une tâche ou ouvre /senior-dev.' },
+    { role: 'agent', text: 'Machine prête : VM headless avec Docker, Python 3.13 et Node 24. Que veux-tu construire ?',
+      thinking: 'Inspecter le toolchain et résumer sans dump TUI.',
+      tools: [{ name: 'bash', args: '{"command":"uname -a && df -h /"}', output: 'Linux demo 6.12 · 97 GiB free', done: true }] },
   ] });
   mk('main', 'pi', 'agent', { style: 'pi', items: [
     { role: 'user', text: 'Ajoute une commande pour lister les fenêtres tmux' },
@@ -1166,16 +1168,31 @@ const Sim = (() => {
       wins.filter((w) => w.session === session).forEach((w) => { w.session = n; });
       return { ok: true, session: n };
     },
-    // Same shape as the bridge's pi op (pi's session file). The reply being streamed isn't in it yet.
+    // Same shape as the bridge's pi / codeaf ops. The reply being streamed isn't in the file yet.
+    _nativeChat(w) {
+      if (w.kind !== 'agent') return { found: false };
+      const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
+      const messages = items.map((it, i) => {
+        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text };
+        if (it.role === 'tool') {
+          return { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
+            args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] };
+        }
+        const tools = (it.tools || []).map((t, j) => ({ id: `t${i}_${j}`, name: t.name, args: t.args || '', output: t.output || '', done: t.done !== false, isError: !!t.isError }));
+        return { id: `m${i}`, role: 'assistant', text: it.text, thinking: it.thinking || '', tools };
+      });
+      return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
+    },
     pi: ({ target }) => {
       const w = find(target);
-      if (w.kind !== 'agent' || w.style !== 'pi') return { found: false };
-      const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
-      const messages = items.map((it, i) => it.role === 'user' ? { id: `m${i}`, role: 'user', text: it.text }
-        : it.role === 'tool' ? { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
-          args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] }
-        : { id: `m${i}`, role: 'assistant', text: it.text, tools: [] });
-      return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
+      // Demo pi windows use style "pi" without cmd; codeaf reuses the chrome but has cmd "codeaf".
+      if (w.kind !== 'agent' || w.style !== 'pi' || w.cmd === 'codeaf') return { found: false };
+      return ops._nativeChat(w);
+    },
+    codeaf: ({ target }) => {
+      const w = find(target);
+      if (w.kind !== 'agent' || w.cmd !== 'codeaf') return { found: false };
+      return ops._nativeChat(w);
     },
     resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
     agents: ({ bins = [] }) => ({
@@ -2135,10 +2152,11 @@ const PROFILES = [
     { l: '◀ buffer', h: 'alt+←', k: 'M-Left' }, { l: 'buffer ▶', h: 'alt+→', k: 'M-Right' }, { l: 'activité', h: 'alt+a', k: 'M-a' },
     { l: '⇞ haut', h: 'pgup', k: 'PageUp' }, { l: '⇟ bas', h: 'pgdn', k: 'PageDown' }, { l: 'précédent', h: 'alt+<', k: 'M-<' },
     { l: 'liste', h: '/bar', cmd: '/bar toggle buflist' }, { l: 'pseudos', h: '/bar', cmd: '/bar toggle nicklist' }, { l: 'fermer', h: '/close', cmd: '/close' }] },
-  { id: 'codeaf', match: /^codeaf$/i, stop: 'Escape', ctx: [
-    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
-    { l: 'senior', h: '/senior-dev', cmd: '/senior-dev' }, { l: 'sec', h: '/sec', cmd: '/sec' },
-    { l: 'review', h: '/review', cmd: '/review' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' }] },
+  { id: 'codeaf', match: /^codeaf$/i, chat: 'codeaf', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'nouveau', h: '/new', cmd: '/new' },
+    { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'senior', h: '/senior-dev', cmd: '/senior-dev' },
+    { l: 'sec', h: '/sec', cmd: '/sec' }, { l: 'review', h: '/review', cmd: '/review' },
+    { l: 'rewind', h: '/rewind', cmd: '/rewind' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' }] },
   { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' }] },
@@ -2278,9 +2296,10 @@ function loadWindow(win) {
   KBD.echo = '';
   W.profile = profileOf(win);
   try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
-  // The program's own TUI by default (it stays right whatever its version); the chat view is one tap away.
-  W.mode = state.modes[winKey()] || 'term';
-  if (W.profile.buffers) W.mode = 'term'; // WeeChat is driven from the terminal view and its buffer bar
+  // Native chat agents (pi, codeaf) open in Chat — their TUI chrome is dense on a phone.
+  // Everything else starts in Terminal; WeeChat always stays there for the buffer bar.
+  W.mode = state.modes[winKey()] || (W.profile.chat ? 'chat' : 'term');
+  if (W.profile.buffers) W.mode = 'term';
   $('#mode-seg').style.display = W.profile.buffers || W.profile.id === 'shell' ? 'none' : '';
   W.status = 'idle'; setStatus('idle');
 }
@@ -2446,10 +2465,10 @@ async function tick() {
       W.screen = { ...c, screen: c.screen.join('\n') };
       drawTerm(c);
       if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
-    } else if (W.profile.chat === 'pi' && W.piState !== 'missing') {
-      // Conversation from pi's session file every other tick; the visible screen gives the live state.
+    } else if (W.profile.chat && W.piState !== 'missing') {
+      // Native chat (pi / codeaf): session file every other tick; screen gives the live stream.
       if (!W.pi || W.n % 2 === 0) {
-        const p = await api(srv, 'pi', { target: W.win });
+        const p = await api(srv, W.profile.chat, { target: W.win });
         if (p.found) {
           if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
           W.piState = 'ok';
@@ -2770,7 +2789,7 @@ const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮�
 const RULE = /^\s*[╭┌╰└]?[─━═-]{8,}[╮┐╯┘]?\s*$/;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
 const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·]\s*(Working|Thinking|Running|Generating|Esc to|Pondering)/i;
-const LAUNCH = /(?:\$|#|%|❯)\s*(pi|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
+const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
 function cleanScreen(screen, width = 80) {
   let lines = screen.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
   while (lines.length && !lines[lines.length - 1]) lines.pop();
@@ -2811,8 +2830,9 @@ function renderPi() {
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
   if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
-  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens dans pi</div>` : '';
-  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation pi</b>Écris ton premier message.</div>`;
+  const who = W.profile?.id === 'codeaf' ? 'codeaf' : W.profile?.id === 'pi' ? 'pi' : 'l’agent';
+  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
+  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
   for (const m of msgs) {
     if (m.role === 'user') html += `<div class="msg user">${esc(m.text)}</div>`;
     else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
@@ -2866,9 +2886,9 @@ function renderGeneric() {
 
 function drawChat() {
   let html;
-  if (W.profile.chat === 'pi' && W.pi) html = renderPi();
-  else if (W.profile.chat === 'pi' && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
-  else html = (W.profile.chat === 'pi' ? '<div class="pnote">Session pi introuvable : vue de l\'écran</div>' : '') + renderGeneric();
+  if (W.profile.chat && W.pi) html = renderPi();
+  else if (W.profile.chat && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
+  else html = (W.profile.chat ? `<div class="pnote">Session ${esc(W.profile.id)} introuvable : vue de l'écran</div>` : '') + renderGeneric();
   if (html === W.last) return;
   const box = $('#chatbox');
   const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;

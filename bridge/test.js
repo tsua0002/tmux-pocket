@@ -5,7 +5,10 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 process.env.STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-state-'));
-const { ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk, pickPiSession } = require('./server');
+const {
+  ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk,
+  pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
+} = require('./server');
 
 const conn = { transport: 'local', tmuxPath: `tmux -L pocket-test-${process.pid}` };
 const session = "it's a test";
@@ -153,6 +156,51 @@ test('pickPiSession prefers the newest created file after /new', () => {
   const picked = pickPiSession(out);
   assert.ok(picked, 'should pick a session');
   assert.match(picked.path, /_new\.jsonl$/);
+});
+
+test('encodeCodeafWorkspace matches codeaf encodeWorkspace', () => {
+  assert.strictEqual(encodeCodeafWorkspace('/home/p/code'), '-home-p-code');
+  assert.strictEqual(encodeCodeafWorkspace('/home/dev/work/codeaf-checkout'), '-home-dev-work-codeaf-checkout');
+});
+
+test('pickCodeafSession prefers transcript touched after process start', () => {
+  const now = 1_700_000_000;
+  const out = [
+    `now ${now} age 60`,
+    `f ${now - 120} 800 /home/u/.codeaf/v3/projects/-tmp/aaaaaaaaaaaaaaaa/transcript.jsonl`,
+    `f ${now - 20} 40 /home/u/.codeaf/v3/projects/-tmp/bbbbbbbbbbbbbbbb/transcript.jsonl`,
+  ].join('\n');
+  const picked = pickCodeafSession(out);
+  assert.ok(picked);
+  assert.match(picked.path, /bbbbbbbbbbbbbbbb/);
+});
+
+test('codeafIngest maps thinking, tools and rewind like the phone chat expects', () => {
+  const cache = { offset: 0, entries: new Map(), order: [], header: null, name: null, seq: 0 };
+  const lines = [
+    JSON.stringify({ type: 'session', version: 1, id: 'aaaaaaaaaaaaaaaa', cwd: '/tmp', model: 'deepseek/flash', timestamp: 't' }),
+    JSON.stringify({ type: 'title', title: 'greeting the start' }),
+    JSON.stringify({ type: 'message', role: 'user', content: 'hello', timestamp: 't' }),
+    JSON.stringify({
+      type: 'message', role: 'assistant', content: 'on it', reasoning: 'plan the check', timestamp: 't',
+      toolCalls: [{ id: 'c1', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'uname -a' }) } }],
+    }),
+    JSON.stringify({ type: 'message', role: 'tool', toolCallId: 'c1', content: 'Linux demo', timestamp: 't' }),
+    JSON.stringify({ type: 'message', role: 'assistant', content: 'Done.', timestamp: 't' }),
+    JSON.stringify({ type: 'rewind', dropped: 1 }),
+  ];
+  for (const line of lines) codeafIngest(cache, line);
+  const conv = codeafConversation(cache);
+  assert.strictEqual(conv.name, 'greeting the start');
+  assert.strictEqual(conv.model, 'deepseek/flash');
+  assert.strictEqual(conv.messages.length, 2); // rewind dropped the last assistant
+  assert.strictEqual(conv.messages[0].role, 'user');
+  assert.strictEqual(conv.messages[1].role, 'assistant');
+  assert.strictEqual(conv.messages[1].thinking, 'plan the check');
+  assert.strictEqual(conv.messages[1].tools.length, 1);
+  assert.strictEqual(conv.messages[1].tools[0].name, 'bash');
+  assert.strictEqual(conv.messages[1].tools[0].done, true);
+  assert.strictEqual(conv.messages[1].tools[0].output, 'Linux demo');
 });
 
 test('agents detects pi via ~/.pi/agent when PATH is incomplete', async () => {

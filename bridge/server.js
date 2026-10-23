@@ -200,9 +200,128 @@ function pickPiSession(out) {
 }
 
 const piCache = new Map(); // conn|file -> { offset, entries, order, header }
+const codeafCache = new Map(); // conn|file -> { offset, entries, order, header, name, seq }
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s || '');
 const textOf = (content) => typeof content === 'string' ? content
   : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+// ---------- CodeAF sessions (AgentField) ----------
+// v3: ~/.codeaf/v3/projects/<encoded-workspace>/<16-hex-id>/transcript.jsonl
+// legacy: ~/.codeaf/v3/sessions/<encoded>/*.jsonl
+// Encoding matches codeaf's encodeWorkspace: separators → dashes, leading dash.
+function encodeCodeafWorkspace(ws) {
+  let e = String(ws || '').replace(/\/+/g, '/');
+  if (e.length > 1) e = e.replace(/\/$/, '');
+  e = e.replace(/[/\\:]/g, '-');
+  if (!e.startsWith('-')) e = `-${e}`;
+  return e;
+}
+
+function codeafLocateScript(c, t) {
+  const tm = c.tmuxPath || 'tmux';
+  return [
+    `pp=$(${tm} display -p -t ${target(t)} '#{pane_pid}') || exit 1`,
+    `cwd=$(${tm} display -p -t ${target(t)} '#{pane_current_path}')`,
+    'pid=$(pgrep -P "$pp" -x codeaf | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" codeaf | head -1); [ -n "$pid" ] || pid=$pp',
+    'echo "now $(date +%s) age $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d \' \')"',
+    'root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true); [ -n "$root" ] || root=$cwd',
+    'enc() { printf %s "$1" | sed \'s#//*#/#g; s#/$##; s#[/\\\\:]#-#g; s#^\\([^-]\\)#-\\1#\'; }',
+    'home="${CODEAF_HOME:-$HOME/.codeaf}"',
+    'for base in "$root" "$cwd"; do',
+    '  e=$(enc "$base")',
+    '  dir="$home/v3/projects/$e"',
+    '  for f in "$dir"/*/transcript.jsonl; do [ -f "$f" ] || continue; echo "f $(stat -c \'%Y %s\' "$f") $f"; done',
+    '  for f in "$home/v3/sessions/$e"/*.jsonl; do [ -f "$f" ] || continue; echo "f $(stat -c \'%Y %s\' "$f") $f"; done',
+    'done',
+    'true',
+  ].join('\n');
+}
+
+function pickCodeafSession(out) {
+  const head = /^now (\d+) age (\d*)/m.exec(out);
+  const seen = new Map();
+  for (const [, mtime, size, p] of out.matchAll(/^f (\d+) (\d+) (.+)$/gm)) {
+    seen.set(p, { path: p, mtime: +mtime, size: +size, created: +mtime });
+  }
+  const files = [...seen.values()];
+  if (!files.length) return null;
+  const started = head && head[2] ? +head[1] - +head[2] : 0;
+  // Prefer transcripts touched after this codeaf process started (fresh /new).
+  const own = files.filter((f) => started && f.mtime >= started - 10);
+  const pool = own.length ? own : files;
+  return pool.sort((a, b) => b.mtime - a.mtime)[0];
+}
+
+function codeafIngest(cache, line) {
+  if (!line.trim()) return;
+  let e;
+  try { e = JSON.parse(line); } catch { return; }
+  if (e.type === 'session') {
+    cache.header = { cwd: e.cwd, id: e.id, model: e.model };
+    return;
+  }
+  if (e.type === 'title' && e.title) { cache.name = e.title; return; }
+  if (e.type === 'rewind') {
+    const n = Math.max(0, Number(e.dropped) || 0);
+    for (let i = 0; i < n; i++) {
+      const id = cache.order.pop();
+      if (id != null) cache.entries.delete(id);
+    }
+    return;
+  }
+  if (e.type !== 'message') return;
+  const id = `m${cache.seq++}`;
+  const slim = { id, timestamp: e.timestamp };
+  const content = textOf(e.content);
+  if (e.role === 'user') {
+    slim.role = e.note ? 'note' : 'user';
+    slim.text = content;
+  } else if (e.role === 'assistant') {
+    slim.role = 'assistant';
+    slim.text = content;
+    slim.thinking = clip(e.reasoning || '', 4000);
+    slim.tools = (e.toolCalls || []).map((t) => ({
+      id: t.id,
+      name: t.function?.name || t.name || 'tool',
+      args: clip(typeof t.function?.arguments === 'string' ? t.function.arguments : JSON.stringify(t.function?.arguments ?? t.arguments ?? {}), 400),
+    }));
+    if (e.model) slim.model = e.model;
+  } else if (e.role === 'tool') {
+    slim.role = 'tool';
+    slim.toolCallId = e.toolCallId;
+    slim.output = clip(content, 3000);
+    slim.isError = !!e.isError;
+  } else return;
+  cache.entries.set(id, slim);
+  cache.order.push(id);
+}
+
+function codeafConversation(cache) {
+  const results = new Map();
+  for (const id of cache.order) {
+    const e = cache.entries.get(id);
+    if (e?.role === 'tool' && e.toolCallId) results.set(e.toolCallId, e);
+  }
+  let model = cache.header?.model || null;
+  const messages = [];
+  for (const id of cache.order) {
+    const e = cache.entries.get(id);
+    if (!e || e.role === 'tool') continue;
+    if (e.model) model = e.model;
+    const msg = { id: e.id, role: e.role, text: e.text || '', ts: e.timestamp };
+    if (e.role === 'assistant') {
+      if (e.thinking) msg.thinking = e.thinking;
+      msg.tools = (e.tools || []).map((t) => ({
+        ...t,
+        output: results.get(t.id)?.output,
+        isError: results.get(t.id)?.isError,
+        done: results.has(t.id),
+      }));
+    }
+    messages.push(msg);
+  }
+  return { model, name: cache.name || null, total: messages.length, messages: messages.slice(-200) };
+}
 
 function piIngest(cache, line) {
   if (!line.trim()) return;
@@ -519,6 +638,33 @@ ${probes}
     return { found: true, file: path.basename(file.path), ...piConversation(cache) };
   },
 
+  // Native CodeAF chat: same message shape as pi (thinking, tool cards) from transcript.jsonl.
+  async codeaf(c, { target: t }) {
+    const r = await run(c, codeafLocateScript(c, t));
+    if (r.code !== 0) throw new Error(r.stderr.trim() || 'codeaf session lookup failed');
+    const file = pickCodeafSession(r.stdout);
+    if (!file) return { found: false };
+    const key = `${connKey(c)}|${c.transport || 'ssh'}|codeaf|${file.path}`;
+    let cache = codeafCache.get(key);
+    if (!cache || file.size < cache.offset) {
+      cache = { offset: 0, entries: new Map(), order: [], header: null, name: null, seq: 0 };
+    }
+    if (file.size > cache.offset) {
+      const want = Math.min(file.size - cache.offset, 16 << 20);
+      const d = await run(c, `tail -c +${cache.offset + 1} ${q(file.path)} | head -c ${want}`, { raw: true });
+      const end = d.stdout.lastIndexOf(0x0a);
+      if (end >= 0) {
+        for (const line of d.stdout.subarray(0, end).toString('utf8').split('\n')) codeafIngest(cache, line);
+        cache.offset += end + 1;
+      }
+    }
+    codeafCache.set(key, cache);
+    const label = file.path.includes('/transcript.jsonl')
+      ? path.basename(path.dirname(file.path))
+      : path.basename(file.path);
+    return { found: true, file: label, ...codeafConversation(cache) };
+  },
+
   // Fit the window to the phone (tmux >= 2.9). cols=0 restores automatic sizing.
   async resize(c, { target: t, cols, rows }) {
     const cmd = cols
@@ -628,4 +774,7 @@ if (require.main === module) {
   const { public: pub } = getBridgeKey();
   server.listen(PORT, HOST, () => console.log(`tmux-pocket bridge on http://${HOST}:${PORT}\nPublic key: ${pub}`));
 }
-module.exports = { ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk, pickPiSession };
+module.exports = {
+  ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk,
+  pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
+};
