@@ -33,6 +33,14 @@ messages, tool calls with their output, thinking folded, errors, the model, and 
 **WeeChat at your fingertips:** your buffers become buttons (current one highlighted, activity marked), plus
 previous / next buffer, jump to activity and scrolling.
 
+**A keyboard inside the terminal:** in the TUI, pi and the other agents get a full keyboard drawn over the bottom of
+the terminal, see-through like the terminal itself. Every tap is a keystroke sent to the pane: no autocorrect, no
+iOS keyboard pushing the screen around. `esc`, `tab`, `ctrl`, `alt` and arrows sit on its top row, the agent's own
+actions above it; AZERTY or QWERTY, numbers and symbols, accents on long press, repeat on hold. The TUI is resized to
+end right above it, or runs full height underneath. One key brings back the iOS keyboard (dictation, paste).
+The terminal and its keyboard share a theme (Grass by default, or Dark, Light, Homebrew, Ocean). The agent's
+shortcuts sit in a row that folds to one chip; the window menu can also hide individual ones.
+
 **Every key:** sticky `ctrl` / `alt` / `⇧` for the next key (from the bar or the keyboard), per-program shortcuts
 (pi: stop, new, compact, model…), arrows, `home`/`end`, `pgup`/`pgdn`, F1–F12 and symbols.
 
@@ -151,6 +159,9 @@ Bridge tests run against a real tmux: `cd bridge && npm test`.
 - [x] Native pi conversation from its session file; WeeChat buffer navigation; sticky modifiers and full key set
 - [x] Live window previews and agent status; real TUI with native scrolling, swipe-to-wheel with inertia, tap-to-click
 - [x] Tested against pi 1.4 (fullscreen by default) on a real model
+- [x] Keyboard inside the terminal for pi and the other agent TUIs (shared accessory row)
+- [ ] Per-agent keyboard rows: Claude Code, then Codex, Gemini CLI, opencode (their own shortcuts and prompts)
+- [ ] Answer chips when an agent waits for you (1 / 2 / 3, y / n), for every agent at once
 - [ ] Native pickers for pi (`/model`, `/resume`, `/tree`) instead of switching to the terminal
 - [ ] Native conversation for claude and codex (their session files)
 - [ ] Native iOS app: [Capacitor](https://capacitorjs.com) around `web/`, plus a Swift SSH plugin

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,7 +20,7 @@
   --accent: #5be3a4; --accent-ink: #03150c; --accent-soft: rgba(91,227,164,.14);
   --wait: #f5b84a; --wait-soft: rgba(245,184,74,.14); --danger: #ff6b6b; --danger-soft: rgba(255,107,107,.14);
   --agent: #9d8cff; --agent-soft: rgba(157,140,255,.15);
-  --term-bg: #07080b; --term-fg: #d7dae0;
+  --term-bg: #13773d; --term-fg: #fff0a5; --term-cursor: #8c2800; --term-font: Menlo, "SF Mono", ui-monospace, monospace;
   --bar: rgba(12,14,18,.78); --blur: saturate(1.6) blur(18px);
   --r-s: 10px; --r: 14px; --r-l: 22px;
   --ui: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
@@ -32,15 +32,22 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 var(--ui);
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior: none; }
+/* No double-tap zoom anywhere: two quick taps (ctrl, then a key) would zoom the page and cancel the second tap. */
+html, body, #app { touch-action: manipulation; }
 /* The page itself never scrolls: on iOS the keyboard would scroll it away. The app follows the visual viewport instead. */
 html, body { position: fixed; inset: 0; overflow: hidden; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
-input, textarea, select { font: inherit; color: var(--text); }
+/* 16px floor on every field (not only .field / .inline): below it iOS zooms the page on focus
+   and never zooms back out by itself. font:inherit alone is not enough — Safari's UA sheet
+   sizes bare inputs at ~11px. */
+input, textarea, select { font: inherit; font-size: 16px; color: var(--text); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* ---------- phone frame on desktop (simulation) ---------- */
-#stage { position: fixed; left: 0; right: 0; top: 0; height: var(--app-h); transform: translateY(var(--app-top, 0px));
+/* Use top, never transform: a transformed ancestor makes iOS Safari zoom on focus
+   even when the field is 16px (it misreads the rendered size). */
+#stage { position: fixed; left: 0; right: 0; top: var(--app-top, 0px); height: var(--app-h);
   display: flex; justify-content: center; align-items: center; gap: 48px; }
 #app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
 #aside { display: none; max-width: 300px; color: var(--muted); font-size: 14px; }
@@ -132,7 +139,8 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 .field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .field input, .field textarea, .field select { width: 100%; border: 0; background: transparent; outline: none; padding: 2px 0; font-size: 16px; }
 .field select { -webkit-appearance: none; appearance: none; }
-.field textarea { font-family: var(--mono); font-size: 13px; min-height: 70px; resize: vertical; }
+/* 16px floor on every field: below it iOS zooms in on focus, the visual viewport changes and the app refits in a loop. */
+.field textarea { font-family: var(--mono); font-size: 16px; min-height: 70px; resize: vertical; }
 .field.check { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .field.check > span { margin: 0; font-size: 16px; color: var(--text); }
 .field.check input { width: auto; accent-color: var(--accent); transform: scale(1.3); }
@@ -156,7 +164,7 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 @keyframes fade { from { background: rgba(0,0,0,0); } }
 .sheet { width: 100%; background: rgba(22,24,31,.94); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-l) var(--r-l) 0 0;
-  padding: 10px 16px calc(env(safe-area-inset-bottom) + 18px); max-height: 86%; overflow-y: auto; animation: up .24s cubic-bezier(.2,.8,.2,1); }
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 18px); max-height: 86%; overflow-y: auto; overscroll-behavior: contain; animation: up .24s cubic-bezier(.2,.8,.2,1); }
 @keyframes up { from { transform: translateY(60px); opacity: .4; } }
 .grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 12px; }
 .sheet h3 { margin: 2px 0 14px; font-size: 19px; font-weight: 700; }
@@ -172,9 +180,11 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chips button { padding: 7px 13px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font: 13.5px var(--mono); }
 .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.chips button.theme { background: var(--sw-bg); color: var(--sw-fg); border-color: rgba(255,255,255,.14); }
+.chips button.theme.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); font-weight: 700; }
 .inline { display: flex; gap: 8px; margin-top: 12px; }
 .inline input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--bg-2);
-  font-family: var(--mono); font-size: 15px; outline: none; }
+  font-family: var(--mono); font-size: 16px; outline: none; }
 .inline input:focus { border-color: var(--accent); }
 .inline button { padding: 0 18px; border-radius: 13px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .inline button.ghost { background: var(--surface-3); color: var(--text); border: 1px solid var(--line-2); }
@@ -184,10 +194,10 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 #v-window header .seg { flex: none; }
 #v-window header .seg button { padding: 6px 11px; font-size: 12.5px; }
 #termwrap { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
-#termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; }
+#termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; touch-action: pan-x pan-y; }
 #termlines { padding: 6px 6px 10px; min-width: max-content; color: var(--term-fg); font-family: Menlo, "SF Mono", ui-monospace, monospace; white-space: pre; }
 #termlines > div { height: var(--lh); line-height: var(--lh); }
-#termlines .cur { background: var(--term-fg); color: var(--term-bg); }
+#termlines .cur { background: var(--term-cursor); color: var(--term-bg); }
 #tobottom { position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
   background: rgba(35,39,51,.92); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--line-2);
   color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
@@ -221,6 +231,18 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .keyrow.ctx button.cur { background: var(--chat, #6ccdff); color: #04121a; border-color: transparent; }
 .keyrow.ctx button.cur small { color: #04121a; }
 .keyrow.ctx button.buf { font-family: var(--mono); font-weight: 600; }
+/* Program shortcuts: full row, folds to one chip so the terminal keeps the height. */
+.ctxstrip { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ctxstrip[hidden] { display: none; }
+.ctxstrip .ctx-toggle { flex: none; height: 34px; min-width: 34px; padding: 0 10px; border-radius: 99px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); display: grid; place-items: center; }
+.ctxstrip .ctx-toggle .i { width: 16px; height: 16px; transition: transform .18s ease; }
+.ctxstrip:not(.folded) .ctx-toggle .i { transform: rotate(180deg); }
+.ctxstrip .ctx-toggle .lbl { display: none; font: 600 12.5px var(--ui); padding: 0 2px 0 1px; }
+.ctxstrip.folded .ctx-toggle { padding: 0 12px 0 10px; gap: 4px; grid-auto-flow: column; color: var(--text); }
+.ctxstrip.folded .ctx-toggle .lbl { display: inline; }
+.ctxstrip.folded .keyrow.ctx { display: none; }
+.ctxstrip .keyrow.ctx { flex: 1; min-width: 0; padding-left: 2px; }
 .keyrow .dot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: var(--wait); margin-left: 6px; vertical-align: 1px; }
 .keygrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; margin-bottom: 12px; }
 .keygrid button { height: 44px; border-radius: 11px; background: var(--surface-3); border: 1px solid var(--line); font: 600 13.5px var(--mono); }
@@ -236,6 +258,56 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .composer .send.stop { background: var(--danger); color: #fff; }
 .composer .send .ic-stop, .composer .send.stop .ic-send { display: none; }
 .composer .send.stop .ic-stop { display: block; }
+.composer .kb-show { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; flex: none; color: var(--text-2); }
+.composer .kb-show:active { background: var(--surface-3); }
+#v-window[data-mode="chat"] .kb-show { display: none; }
+#v-window.kb-on .dock { display: none; }
+
+/* terminal keyboard: drawn inside the terminal, in its colours and font, and see-through so the TUI stays visible
+   behind it. Every tap is a keystroke sent to the pane; the iOS keyboard and its autocorrect never get involved. */
+.tkb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 4px 3px calc(env(safe-area-inset-bottom) + 4px);
+  --kh: 42px; --kb-a: 62%; --kb-blur: 10px; --key-a: 13%; --fn-a: 6%;
+  --key: color-mix(in srgb, var(--term-fg) var(--key-a), transparent); --key-fn: color-mix(in srgb, var(--term-fg) var(--fn-a), transparent);
+  background: color-mix(in srgb, var(--term-bg) var(--kb-a), transparent); color: var(--term-fg);
+  -webkit-backdrop-filter: blur(var(--kb-blur)); backdrop-filter: blur(var(--kb-blur));
+  border-top: 1px solid color-mix(in srgb, var(--term-fg) 16%, transparent);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.tkb[data-alpha="clear"] { --kb-a: 18%; --kb-blur: 0px; --key-a: 11%; --fn-a: 5%; }
+.tkb[data-alpha="solid"] { --kb-a: 100%; --key-a: 15%; --fn-a: 7%; }
+@media (max-height: 740px) { .tkb { --kh: 38px; } }
+.tkb .ctxstrip { padding: 2px 4px 3px; }
+.tkb .ctxstrip .ctx-toggle { background: var(--key-fn); border-color: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); }
+.tkb .keyrow.ctx { padding: 0; touch-action: pan-x; }
+.tkb .keyrow.ctx button { background: var(--key-fn); border-color: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); font-family: var(--term-font); }
+.tkb .keyrow.ctx button small { color: inherit; opacity: .65; }
+.tkb-row { display: flex; gap: 5px; padding: 3px 2px; }
+.tkb-row > i { flex: var(--w, .5) 1 0; }
+.tkb-row button { flex: var(--w, 1) 1 0; min-width: 0; height: var(--kh); border-radius: 7px; display: grid; place-items: center;
+  background: var(--key); border: 1px solid color-mix(in srgb, var(--term-fg) 10%, transparent);
+  color: var(--term-fg); font: 400 20px/1 var(--term-font); transition: background .08s ease; }
+.tkb-row button.fn { background: var(--key-fn); font-size: 15px; font-weight: 600; }
+.tkb-row button.space { font-size: 14px; opacity: .9; }
+.tkb-row button.down { background: color-mix(in srgb, var(--term-fg) 32%, transparent); }
+.tkb-row button.on { background: var(--term-fg); color: var(--term-bg); border-color: transparent; }
+.tkb-row button.lock .i { fill: currentColor; }
+.tkb-row button.lock::after { content: ""; position: absolute; margin-top: 28px; width: 14px; height: 2px; border-radius: 1px; background: currentColor; }
+.tkb-row button .i { width: 21px; height: 21px; }
+.tkb-acc { padding-bottom: 1px; }
+.tkb-acc button { height: 36px; background: transparent; border-color: transparent; font-size: 15px; font-weight: 600; }
+.tkb-acc button.down { background: color-mix(in srgb, var(--term-fg) 18%, transparent); }
+.tkb-acc button .i { width: 19px; height: 19px; }
+.tkb-acc button.fold .i { transition: transform .2s ease; }
+.tkb.folded .tkb-acc button.fold .i { transform: rotate(180deg); }
+.tkb.folded .tkb-keys { display: none; }
+.tkb-pop, .tkb-alts { position: absolute; z-index: 4; pointer-events: none; transform: translate(-50%, -100%); border-radius: 10px;
+  background: color-mix(in srgb, var(--term-bg) 88%, var(--term-fg)); border: 1px solid color-mix(in srgb, var(--term-fg) 28%, transparent);
+  box-shadow: 0 10px 28px rgba(0,0,0,.45); color: var(--term-fg); font-family: var(--term-font); }
+.tkb-pop { min-width: 52px; padding: 8px 10px 10px; text-align: center; font-size: 32px; line-height: 1; }
+.tkb-alts { display: flex; padding: 4px; gap: 2px; transform: translateY(-100%); }
+.tkb-alts span { width: 40px; height: 46px; display: grid; place-items: center; border-radius: 7px; font-size: 25px; line-height: 1; }
+.tkb-alts span.sel { background: var(--term-fg); color: var(--term-bg); }
+#termlines { padding-bottom: calc(10px + var(--kbpad, 0px)); }
+#tobottom { bottom: calc(14px + var(--kbh, 0px)); }
 
 /* native pi conversation */
 .msg.user.pending { opacity: .55; }
@@ -279,6 +351,14 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17.5 10h.01M7.5 14h9"/></symbol>
+  <symbol id="i-fold" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-shift" viewBox="0 0 24 24"><path d="M12 4l-8 8h4.5v7h7v-7H20z"/></symbol>
+  <symbol id="i-bs" viewBox="0 0 24 24"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6.5-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></symbol>
+  <symbol id="i-enter" viewBox="0 0 24 24"><path d="M20 5v6a3 3 0 0 1-3 3H5"/><path d="M9 10l-4 4 4 4"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
 </svg>
 <div id="stage">
@@ -377,15 +457,33 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
       <div id="termwrap">
         <div id="termbox" tabindex="0"><div id="termlines"></div></div>
         <button id="tobottom" type="button" aria-label="Revenir en bas" hidden><svg class="i"><use href="#i-down"/></svg></button>
+        <div class="tkb" id="tkb" role="group" aria-label="Clavier du terminal" hidden>
+          <div class="ctxstrip" id="tkb-ctxstrip" hidden>
+            <button type="button" class="ctx-toggle" id="tkb-ctx-toggle" aria-expanded="true" aria-controls="tkb-ctx" aria-label="Raccourcis">
+              <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
+            </button>
+            <div class="keyrow ctx" id="tkb-ctx"></div>
+          </div>
+          <div class="tkb-row tkb-acc" id="tkb-acc"></div>
+          <div class="tkb-keys" id="tkb-keys"></div>
+          <div class="tkb-pop" id="tkb-pop" hidden></div>
+          <div class="tkb-alts" id="tkb-alts" hidden></div>
+        </div>
       </div>
       <div id="chatbox"></div>
       <div class="dock" id="dock">
         <button class="dock-handle" id="dock-handle" type="button" aria-label="Afficher ou masquer les touches"><i></i></button>
         <div class="keys">
-          <div class="keyrow ctx" id="ctxbar"></div>
+          <div class="ctxstrip" id="ctxstrip" hidden>
+            <button type="button" class="ctx-toggle" id="ctx-toggle" aria-expanded="true" aria-controls="ctxbar" aria-label="Raccourcis">
+              <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
+            </button>
+            <div class="keyrow ctx" id="ctxbar"></div>
+          </div>
           <div class="keyrow" id="keybar"></div>
         </div>
         <form class="composer" id="composer">
+          <button type="button" class="kb-show" id="kb-show" aria-label="Clavier du terminal"><svg class="i"><use href="#i-kbd"/></svg></button>
           <textarea id="input" rows="1" placeholder="Message ou commande…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"></textarea>
           <button type="submit" class="send" id="send" aria-label="Envoyer"><svg class="i ic-send"><use href="#i-send"/></svg><svg class="i ic-stop"><use href="#i-stop"/></svg></button>
         </form>
@@ -890,20 +988,54 @@ function armed(btn, label) {
 const closeSheet = () => $('#sheet').classList.remove('on');
 $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
 
-// iOS keyboard: keep the composer above it.
 // iOS keyboard: keep the whole app (header, content, keys, composer) inside the visible area above it.
+// While a field is focused we only shrink the height and keep top at 0. Chasing visualViewport.offsetTop
+// fights Safari's own scroll-into-view and the sheet/composer jump up and down (looks like auto-zoom).
 if (window.visualViewport) {
   const vv = window.visualViewport, root = document.documentElement.style;
-  let refit;
-  const fit = () => {
-    root.setProperty('--app-h', `${vv.height}px`);
-    root.setProperty('--app-top', `${vv.offsetTop}px`);
-    if (window.scrollY) window.scrollTo(0, 0);
+  let refit, frame = 0, last = '';
+  const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+  const keepFieldInSheet = () => {
+    const f = document.activeElement, sheet = typing() && f.closest?.('.sheet');
+    if (!sheet) return;
+    const r = f.getBoundingClientRect(), s = sheet.getBoundingClientRect();
+    if (r.bottom > s.bottom - 12) sheet.scrollTop += r.bottom - s.bottom + 12;
+    else if (r.top < s.top + 8) sheet.scrollTop -= s.top + 8 - r.top;
+  };
+  const apply = () => {
+    frame = 0;
+    const focused = typing();
+    // Pinch-zoom: don't resize under the fingers. Focus-zoom must not happen (16px fields + no
+    // transform on #stage); if the page is still scaled, freeze rather than amplify the jump.
+    if (vv.scale > 1.01) return;
+    // The app is position:fixed; the document must stay at 0. Do not reset while typing —
+    // Safari scrolls to reveal the field and fighting it makes the sheet bounce.
+    if (!focused && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+    const h = Math.round(vv.height);
+    // offsetTop only when nothing is focused (address-bar / pinch pan). During typing it is the
+    // scroll-into-view offset and applying it doubles the shift.
+    const top = focused ? 0 : Math.round(vv.offsetTop);
+    if (`${h}|${top}` === last) { if (focused) keepFieldInSheet(); return; }
+    last = `${h}|${top}`;
+    root.setProperty('--app-h', `${h}px`);
+    root.setProperty('--app-top', `${top}px`);
+    keepFieldInSheet();
     // The terminal gets fewer rows while the keyboard is open, so the TUI redraws its input line in view.
     clearTimeout(refit);
     refit = setTimeout(() => { if (nav.length && nav[nav.length - 1].id === 'v-window' && W.mode === 'term') fitToPhone().then(tick); }, 250);
   };
-  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+  const fit = () => { if (!frame) frame = requestAnimationFrame(apply); };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+  document.addEventListener('focusin', (e) => {
+    if (!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '')) return;
+    // Drop any leftover document scroll / offset before the keyboard animation starts.
+    window.scrollTo(0, 0);
+    root.setProperty('--app-top', '0px');
+    last = '';
+    fit();
+  });
+  document.addEventListener('focusout', () => setTimeout(fit, 60));
+  fit();
 }
 
 const ago = (ts) => {
@@ -1183,6 +1315,21 @@ const PROFILES = [
     { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
 ];
 const profileOf = (w) => PROFILES.find((p) => p.match.test(w.command || '') || (p.id !== 'shell' && p.match.test(w.name || '')));
+// Shortcuts shown for a program (window menu can hide some). The row itself folds to one chip.
+const ctxShown = (p) => state.ctx?.[p.id] ?? p.ctx.map((x) => x.l);
+const ctxFolded = () => !!(W.profile && state.ctxFold?.[W.profile.id]);
+function setCtxFolded(on) {
+  if (!W.profile) return;
+  state.ctxFold = { ...state.ctxFold, [W.profile.id]: !!on };
+  save();
+  for (const id of ['ctxstrip', 'tkb-ctxstrip']) {
+    const el = $('#' + id); if (!el) continue;
+    el.classList.toggle('folded', !!on);
+    const t = el.querySelector('.ctx-toggle');
+    if (t) t.setAttribute('aria-expanded', on ? 'false' : 'true');
+  }
+  kbRefit();
+}
 
 // Generic keys; ctrl / alt / shift are sticky modifiers for the next key, from this bar or the keyboard.
 const KEYS = [
@@ -1200,6 +1347,7 @@ const keyBtn = (x, i, set) => `<button type="button" data-set="${set}" data-i="$
 function drawKeys() {
   $('#keybar').innerHTML = KEYS.map((x, i) => keyBtn(x, i, 'keys')).join('');
   drawCtx();
+  drawKb();
 }
 function drawCtx() {
   const p = W.profile;
@@ -1207,8 +1355,23 @@ function drawCtx() {
   if (p.buffers && W.buffers.length) {
     html += W.buffers.map((b) => `<button type="button" data-buf="${b.n}" class="${b.current ? 'cur' : ''}">${b.n}·${esc(b.name)}${b.hot ? '<i class="dot"></i>' : ''}</button>`).join('');
   }
-  html += p.ctx.map((x, i) => keyBtn(x, i, 'ctx')).join('');
-  if (html !== W.ctxHtml) { W.ctxHtml = html; $('#ctxbar').innerHTML = html; }
+  const shown = ctxShown(p);
+  html += p.ctx.map((x, i) => (shown.includes(x.l) ? keyBtn(x, i, 'ctx') : '')).join('');
+  if (html !== W.ctxHtml) { W.ctxHtml = html; $('#ctxbar').innerHTML = html; $('#tkb-ctx').innerHTML = html; }
+  const has = !!html;
+  const folded = ctxFolded();
+  for (const id of ['ctxstrip', 'tkb-ctxstrip']) {
+    const el = $('#' + id); if (!el) continue;
+    el.hidden = !has;
+    el.classList.toggle('folded', folded);
+    const t = el.querySelector('.ctx-toggle');
+    if (t) {
+      t.setAttribute('aria-expanded', folded ? 'false' : 'true');
+      const n = el.querySelectorAll('.keyrow.ctx button').length;
+      const lbl = t.querySelector('.lbl');
+      if (lbl) lbl.textContent = n > 1 ? `raccourcis · ${n}` : 'raccourcis';
+    }
+  }
 }
 
 // tmux key name with the armed modifiers, e.g. C-M-Left, S-Up, C-o. Shift on a letter is the capital letter.
@@ -1242,6 +1405,12 @@ function onKeyRow(e) {
 }
 $('#keybar').addEventListener('click', onKeyRow);
 $('#ctxbar').addEventListener('click', onKeyRow);
+$('#tkb-ctx').addEventListener('click', onKeyRow);
+const onCtxToggle = (e) => { e.preventDefault(); setCtxFolded(!ctxFolded()); };
+$('#ctx-toggle').addEventListener('click', onCtxToggle);
+$('#tkb-ctx-toggle').addEventListener('click', onCtxToggle);
+// Fold toggle is inside the keyboard: don't let the key handler steal the tap.
+$('#tkb-ctx-toggle').addEventListener('pointerdown', (e) => { e.stopPropagation(); });
 function openMoreKeys() {
   openSheet(`<h3>Touches</h3>
     <div class="keygrid">${KEYS.filter((x) => x.mod).map((x) => keyBtn(x, KEYS.indexOf(x), 'keys')).join('')}</div>
@@ -1273,7 +1442,7 @@ function enterWindow() {
   $('#win-name').textContent = W.win.name;
   setSub();
   resetTerm();
-  W.mods.clear(); drawKeys();
+  W.mods.clear(); Object.assign(KBD, { layer: 'abc', shift: 0, queue: [] }); drawKeys();
   setMode(W.mode);
   fitToPhone().finally(() => { tick(); });
   schedule();
@@ -1298,11 +1467,14 @@ function setStatus(st) {
 }
 function leaveWindow() {
   clearTimeout(W.timer);
+  KBD.queue = []; kbRelease();
   if (W.fitted) api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {});
   W.fitted = false;
 }
 function setMode(m) {
   W.mode = m; state.modes[winKey()] = m; save();
+  $('#v-window').dataset.mode = m;
+  kbApply(m === 'term' && kbWanted());
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
   $('#termwrap').style.display = m === 'term' ? '' : 'none';
   $('#chatbox').style.display = m === 'chat' ? 'block' : 'none';
@@ -1319,7 +1491,8 @@ const LINE_H = 1.25, FONT = 12;
 async function fitToPhone() {
   if (srv.fit === false) return;
   const box = $('#termbox');
-  const width = (box.clientWidth || $('#app').clientWidth) - 12, height = (box.clientHeight || 500) - 16; // #termlines padding
+  const width = (box.clientWidth || $('#app').clientWidth) - 12;
+  const height = (box.clientHeight || 500) - 16 - kbPad(); // #termlines padding, and the keyboard unless the TUI runs under it
   const cols = Math.max(30, Math.floor(width / (FONT * cellRatio())));
   // Same font and line height as drawTerm will pick for this width.
   const fs = Math.max(6, Math.min(14, Math.floor((width / (cols * cellRatio())) * 2) / 2));
@@ -1365,9 +1538,29 @@ async function tick() {
 // Regular programs (shell, pi in its default mode): the tmux history is loaded once, then only new lines,
 // and scrolled natively (inertia, selectable text, zero latency). Programs on the alternate screen
 // (pi fullscreen, WeeChat, htop…): swipes become mouse-wheel events (or Page keys), taps become clicks.
-const PALETTE = ['#1e1e1e', '#e05561', '#8cc265', '#d18f52', '#4aa5f0', '#c162de', '#42b3c2', '#d7dae0',
-  '#666e7a', '#ff616e', '#a5e075', '#f0a45d', '#4dc4ff', '#de73ff', '#4cd1e0', '#ffffff'];
-const TERM_FG = '#d7dae0', TERM_BG = '#0b0d10';
+// Terminal themes: the terminal and its keyboard take the same colours. Grass and the plain ones are
+// Terminal.app's classic profiles.
+const ANSI_APPLE = ['#000000', '#990000', '#00a600', '#999900', '#0000b2', '#b200b2', '#00a6b2', '#bfbfbf',
+  '#666666', '#e50000', '#00d900', '#e5e500', '#0000ff', '#e500e5', '#00e5e5', '#e5e5e5'];
+const THEMES = {
+  grass: { name: 'Grass', bg: '#13773d', fg: '#fff0a5', cursor: '#8c2800', ansi: ['#000000', '#bb0000', '#00bb00', '#e7b000', '#0000a3', '#950062',
+    '#00bbbb', '#bbbbbb', '#555555', '#bb0000', '#00bb00', '#e7b000', '#0000bb', '#ff55ff', '#55ffff', '#ffffff'] },
+  dark: { name: 'Sombre', bg: '#0b0d10', fg: '#d7dae0', cursor: '#d7dae0', ansi: ['#1e1e1e', '#e05561', '#8cc265', '#d18f52', '#4aa5f0', '#c162de',
+    '#42b3c2', '#d7dae0', '#666e7a', '#ff616e', '#a5e075', '#f0a45d', '#4dc4ff', '#de73ff', '#4cd1e0', '#ffffff'] },
+  basic: { name: 'Clair', bg: '#ffffff', fg: '#111111', cursor: '#7f7f7f', ansi: ANSI_APPLE },
+  homebrew: { name: 'Homebrew', bg: '#000000', fg: '#28fe14', cursor: '#38fe27', ansi: ANSI_APPLE },
+  ocean: { name: 'Ocean', bg: '#224fbc', fg: '#ffffff', cursor: '#7f7f7f', ansi: ANSI_APPLE },
+};
+const PALETTE = [];
+let TERM_FG, TERM_BG;
+function applyTheme() {
+  const t = THEMES[state.theme] || THEMES.grass;
+  PALETTE.splice(0, 16, ...t.ansi);
+  TERM_FG = t.fg; TERM_BG = t.bg;
+  const s = document.documentElement.style;
+  s.setProperty('--term-bg', t.bg); s.setProperty('--term-fg', t.fg); s.setProperty('--term-cursor', t.cursor);
+  TV.keys = []; $('#termlines').innerHTML = ''; // colours are baked into the rendered lines
+}
 function color256(n) {
   if (n < 16) return PALETTE[n];
   if (n < 232) { const v = [0, 95, 135, 175, 215, 255]; n -= 16; return `rgb(${v[Math.floor(n / 36)]},${v[Math.floor(n / 6) % 6]},${v[n % 6]})`; }
@@ -1422,6 +1615,7 @@ function lineHtml(raw, cursorX = -1, start = FRESH) {
 const plain = (raw) => raw.replace(TOKEN, (_, sgr, text) => text || '');
 
 const TV = { keys: [], lines: [], hist: null, full: true, fs: 0, lh: 0, cw: 0, info: null, ratio: 0 };
+applyTheme();
 function resetTerm() {
   Object.assign(TV, { keys: [], lines: [], hist: null, full: true, info: null });
   $('#termlines').innerHTML = '';
@@ -1776,11 +1970,218 @@ $('#composer').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+// ---------- terminal keyboard: a full keyboard drawn inside the TUI, every tap is a keystroke ----------
+// On by default for pi and the other agent harnesses (they share their accessory row through PROFILES),
+// one tap away for everything else. ctrl / alt are the same sticky modifiers as the key bar.
+const KBD = { on: false, layer: 'abc', shift: 0, shiftAt: 0, queue: [], pumping: false, press: null, html: '' };
+function kbPrefs() {
+  if (!state.kb) state.kb = { layout: /^fr/i.test(navigator.language || '') ? 'azerty' : 'qwerty', alpha: 'glass', overlay: false, folded: false, use: {} };
+  return state.kb;
+}
+const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent'].includes(W.profile.id);
+const kbPad = () => (KBD.on && !kbPrefs().overlay ? $('#tkb').offsetHeight : 0);
+
+const ACCENTS = { e: 'éèêë', a: 'àâäæ', c: 'ç', u: 'ùûü', i: 'îï', o: 'ôöœ', y: 'ÿ', n: 'ñ', "'": '’"«»', '"': '«»“”',
+  '.': '…', '-': '–—', '?': '¿', '!': '¡', '$': '€£' };
+const chars = (s) => [...s].map((t) => ({ t }));
+const KB_SHIFT = { act: 'shift', w: 1.4, fn: true, icon: 'i-shift', label: 'Majuscule' };
+const KB_BS = { k: 'BSpace', w: 1.4, fn: true, icon: 'i-bs', label: 'Effacer', repeat: true };
+const kbBottom = (to, l) => [{ act: 'layer', to, l, w: 1.4, fn: true }, { act: 'system', icon: 'i-kbd', w: 1.2, fn: true, label: 'Clavier de l’iPhone' },
+  { t: ' ', w: 4.6, space: true, label: 'Espace' }, { t: '/' }, { k: 'Enter', icon: 'i-enter', w: 1.8, fn: true, label: 'Entrée' }];
+const KB_LAYERS = {
+  azerty: [chars('azertyuiop'), chars('qsdfghjklm'), [KB_SHIFT, ...chars("wxcvbn'"), KB_BS], kbBottom('123', '123')],
+  qwerty: [chars('qwertyuiop'), [{ spacer: true }, ...chars('asdfghjkl'), { spacer: true }], [KB_SHIFT, ...chars('zxcvbnm'), KB_BS], kbBottom('123', '123')],
+  123: [chars('1234567890'), chars('-/:;()$&@"'), [{ act: 'layer', to: 'sym', l: '#+=', w: 1.4, fn: true }, ...chars(".,?!'=+"), KB_BS], kbBottom('abc', 'ABC')],
+  sym: [chars('[]{}#%^*+='), chars('_\\|~<>`€£•'), [{ act: 'layer', to: '123', l: '123', w: 1.4, fn: true }, ...chars(".,?!'-@"), KB_BS], kbBottom('abc', 'ABC')],
+};
+const KB_ACC = [{ l: 'esc', k: 'Escape' }, { l: 'tab', k: 'Tab' }, { l: 'ctrl', mod: 'C' }, { l: 'alt', mod: 'M' },
+  { k: 'Left', icon: 'i-left', label: 'Gauche', repeat: true }, { k: 'Up', icon: 'i-up', label: 'Haut', repeat: true },
+  { k: 'Down', icon: 'i-down', label: 'Bas', repeat: true }, { k: 'Right', icon: 'i-right', label: 'Droite', repeat: true },
+  { act: 'fold', icon: 'i-fold', label: 'Replier le clavier' }];
+const kbRows = () => KB_LAYERS[KBD.layer === 'abc' ? kbPrefs().layout : KBD.layer];
+
+function kbKeyHtml(x, attr) {
+  if (x.spacer) return '<i></i>';
+  const on = (x.mod && W.mods.has(x.mod)) || (x.act === 'shift' && KBD.shift);
+  const cls = [x.fn && 'fn', x.space && 'space', x.act === 'fold' && 'fold', on && 'on', x.act === 'shift' && KBD.shift === 2 && 'lock'].filter(Boolean).join(' ');
+  const text = x.icon ? `<svg class="i"><use href="#${x.icon}"/></svg>` : x.space ? 'espace'
+    : esc(x.t && KBD.shift ? x.t.toUpperCase() : x.t ?? x.l);
+  const label = x.label || (x.act === 'layer' ? (x.to === 'abc' ? 'Lettres' : x.to === '123' ? 'Chiffres' : 'Symboles') : '');
+  return `<button type="button" ${attr} class="${cls}" style="--w:${x.w || 1}"${label ? ` aria-label="${esc(label)}"` : ''}${x.mod || x.act === 'shift' ? ` aria-pressed="${!!on}"` : ''}>${text}</button>`;
+}
+function drawKb() {
+  if (!KBD.on) return;
+  const acc = KB_ACC.map((x, i) => kbKeyHtml(x, `data-a="${i}"`)).join('');
+  const rows = kbRows().map((r, ri) => `<div class="tkb-row">${r.map((x, ci) => kbKeyHtml(x, `data-r="${ri}" data-c="${ci}"`)).join('')}</div>`).join('');
+  const tkb = $('#tkb');
+  tkb.dataset.alpha = kbPrefs().alpha;
+  tkb.classList.toggle('folded', !!kbPrefs().folded);
+  if (acc + rows === KBD.html) return;
+  KBD.html = acc + rows;
+  $('#tkb-acc').innerHTML = acc; $('#tkb-keys').innerHTML = rows;
+}
+// Show or hide the keyboard without re-fitting the window (callers fit once the layout settles).
+function kbApply(on) {
+  KBD.on = on;
+  $('#v-window').classList.toggle('kb-on', on);
+  $('#tkb').hidden = !on;
+  if (on) { input.blur(); KBD.html = ''; drawKb(); drawCtx(); } else kbRelease();
+  const h = on ? $('#tkb').offsetHeight : 0;
+  $('#termwrap').style.setProperty('--kbh', `${h}px`);
+  $('#termwrap').style.setProperty('--kbpad', `${kbPad()}px`);
+}
+function kbRefit() {
+  kbApply(KBD.on);
+  W.toBottom = true;
+  if (W.mode === 'term' && nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
+}
+function setKb(on) {
+  kbPrefs().use[W.profile.id] = on; save();
+  kbApply(on); kbRefit();
+}
+$('#kb-show').addEventListener('click', () => setKb(true));
+
+// Keystrokes go out in order; letters typed faster than the network are merged into one send.
+function kbSend(op) {
+  const last = KBD.queue[KBD.queue.length - 1];
+  if (op.text != null && last?.text != null) last.text += op.text;
+  else KBD.queue.push(op);
+  if (!KBD.pumping) kbPump();
+}
+async function kbPump() {
+  KBD.pumping = true;
+  const win = W.win;
+  while (KBD.queue.length && W.win === win) {
+    const op = KBD.queue.shift();
+    try {
+      if (op.text != null) await api(srv, 'send', { target: win, text: op.text, enter: false });
+      else await api(srv, 'keys', { target: win, keys: op.keys });
+    } catch (e) { KBD.queue = []; toast(e.message); }
+  }
+  KBD.pumping = false;
+  tick();
+}
+function kbCommit(x, alt) {
+  touched();
+  if (x.mod) return press(x);
+  if (x.act === 'shift') {
+    const now = Date.now();
+    KBD.shift = KBD.shift === 1 && now - KBD.shiftAt < 350 ? 2 : KBD.shift ? 0 : 1;
+    KBD.shiftAt = now;
+    return drawKb();
+  }
+  if (x.act === 'layer') { KBD.layer = x.to; return drawKb(); }
+  if (x.act === 'fold') { kbPrefs().folded = !kbPrefs().folded; save(); drawKb(); return kbRefit(); }
+  const shifted = KBD.shift;
+  if (KBD.shift === 1) KBD.shift = 0;
+  if (x.k) {
+    let k = x.k;
+    if (shifted && k === 'Tab') k = 'BTab';
+    else if (shifted && /^(Left|Right|Up|Down|Home|End)$/.test(k)) k = `S-${k}`;
+    kbSend({ keys: [withMods(k)] }); // withMods redraws the keys
+    return;
+  }
+  let ch = alt || x.t;
+  if (shifted) ch = ch.toUpperCase();
+  if (W.mods.size && /^[!-~ ]$/.test(ch)) kbSend({ keys: [withMods(ch === ' ' ? 'Space' : ch)] });
+  else kbSend({ text: ch });
+  if (x.space && KBD.layer !== 'abc') KBD.layer = 'abc'; // like iOS: a space after numbers goes back to letters
+  if (shifted === 1 || x.space) drawKb();
+}
+
+// iOS-style touch: a letter is typed on release with a preview above the finger; hold it for its accents
+// and slide to pick one. Backspace and arrows act on touch and repeat while held.
+const kbKeyOf = (b) => (b.dataset.a != null ? KB_ACC[Number(b.dataset.a)] : kbRows()[Number(b.dataset.r)]?.[Number(b.dataset.c)]);
+// Fills a bubble shown above a key; returns the key's and the keyboard's boxes to place it.
+function kbBubble(el, b, html) {
+  el.innerHTML = html; el.hidden = false;
+  return { r: b.getBoundingClientRect(), k: $('#tkb').getBoundingClientRect() };
+}
+function kbRelease() {
+  const p = KBD.press; KBD.press = null;
+  if (!p) return;
+  clearTimeout(p.timer);
+  p.b.classList.remove('down');
+  $('#tkb-pop').hidden = true; $('#tkb-alts').hidden = true;
+}
+function kbShowAlts(p) {
+  const base = KBD.shift ? p.key.t.toUpperCase() : p.key.t;
+  p.alts = [base, ...ACCENTS[p.key.t]].map((c) => (KBD.shift ? c.toUpperCase() : c));
+  p.sel = 1;
+  $('#tkb-pop').hidden = true;
+  const el = $('#tkb-alts');
+  const { r, k } = kbBubble(el, p.b, p.alts.map((c, i) => `<span class="${i === p.sel ? 'sel' : ''}">${esc(c)}</span>`).join(''));
+  const w = el.offsetWidth;
+  const left = Math.max(2, Math.min(k.width - w - 2, r.left - k.left - 4));
+  el.style.left = `${left}px`; el.style.top = `${r.top - k.top - 6}px`;
+  p.altsLeft = k.left + left + 4;
+}
+$('#tkb').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('button[data-a], button[data-r]'); if (!b) return;
+  e.preventDefault(); // keeps focus (hardware keyboard) where it is
+  const x = kbKeyOf(b); if (!x) return;
+  kbRelease();
+  const p = KBD.press = { b, key: x, alts: null, sel: 0, done: false, timer: null };
+  b.classList.add('down');
+  try { b.setPointerCapture(e.pointerId); } catch {}
+  if (x.act === 'system') return;
+  if (x.mod) { kbCommit(x); p.done = true; return; } // lit as soon as it's touched
+  if (x.repeat) {
+    kbCommit(x); p.done = true;
+    const again = () => { kbCommit(x); p.timer = setTimeout(again, 70); };
+    p.timer = setTimeout(again, 420);
+  } else if (x.t && !x.space) {
+    const pop = $('#tkb-pop');
+    const { r, k } = kbBubble(pop, b, esc(KBD.shift ? x.t.toUpperCase() : x.t));
+    pop.style.left = `${r.left - k.left + r.width / 2}px`; pop.style.top = `${r.top - k.top - 4}px`;
+    if (ACCENTS[x.t]) p.timer = setTimeout(() => kbShowAlts(p), 380);
+  }
+});
+$('#tkb').addEventListener('pointermove', (e) => {
+  const p = KBD.press; if (!p || !p.alts) return;
+  const sel = Math.max(0, Math.min(p.alts.length - 1, Math.floor((e.clientX - p.altsLeft) / 42)));
+  if (sel !== p.sel) { p.sel = sel; $$('#tkb-alts span').forEach((s, i) => s.classList.toggle('sel', i === sel)); }
+});
+$('#tkb').addEventListener('pointerup', () => {
+  const p = KBD.press; if (!p) return;
+  kbRelease();
+  if (!p.done && p.key.act !== 'system') kbCommit(p.key, p.alts ? p.alts[p.sel] : undefined);
+});
+$('#tkb').addEventListener('pointercancel', kbRelease);
+// No native gesture on the keys (double-tap zoom, callout, text selection): iOS would cancel the tap.
+// The shortcut row keeps its horizontal scroll.
+$('#tkb').addEventListener('touchstart', (e) => { if (!e.target.closest('.keyrow, .ctx-toggle')) e.preventDefault(); }, { passive: false });
+// Opening the iOS keyboard needs a user gesture iOS accepts for focus(): touchend for touch, click for a mouse.
+const kbToSystem = (e) => {
+  const b = e.target.closest('button[data-r]');
+  if (!b || kbKeyOf(b)?.act !== 'system') return;
+  e.preventDefault();
+  setKb(false);
+  input.focus();
+};
+$('#tkb').addEventListener('touchend', kbToSystem);
+$('#tkb').addEventListener('click', kbToSystem);
+window.addEventListener('blur', kbRelease);
+
 $('#win-menu').addEventListener('click', () => {
   openSheet(`<h3>${esc(W.win.name)} <small style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(W.win.session)}:${W.win.window}</small></h3>
     <div class="list menu">
       <button class="row" data-a="fit"><div class="main"><b>${srv.fit === false ? 'Adapter à l\'iPhone' : 'Ne plus adapter (taille du serveur)'}</b><small>tmux resize-window</small></div></button>
       <button class="row" data-a="keys"><div class="main"><b>Toutes les touches</b><small>lettres, F1–F12, symboles, modificateurs</small></div></button>
+    </div>
+    <div class="sub">Clavier du terminal</div>
+    <div class="list menu">
+      <button class="row" data-a="kb"><div class="main"><b>${KBD.on ? 'Masquer le clavier du terminal' : 'Afficher le clavier du terminal'}</b><small>retenu pour ${esc(W.profile.id === 'agent' ? 'les agents' : W.profile.id)}</small></div></button>
+      <button class="row" data-a="kb-layout"><div class="main"><b>Disposition : ${kbPrefs().layout === 'azerty' ? 'AZERTY' : 'QWERTY'}</b><small>toucher pour ${kbPrefs().layout === 'azerty' ? 'QWERTY' : 'AZERTY'}</small></div></button>
+      <button class="row" data-a="kb-alpha"><div class="main"><b>Transparence : ${{ glass: 'verre', clear: 'légère', solid: 'opaque' }[kbPrefs().alpha]}</b><small>verre, légère ou opaque</small></div></button>
+      <button class="row" data-a="kb-overlay"><div class="main"><b>${kbPrefs().overlay ? 'Arrêter le TUI au bord du clavier' : 'Passer le TUI sous le clavier'}</b><small>${kbPrefs().overlay ? 'toutes les lignes restent visibles' : 'pleine hauteur, vue à travers le clavier'}</small></div></button>
+    </div>
+    <div class="sub">Thème du terminal</div>
+    <div class="chips" id="themes">${Object.entries(THEMES).map(([id, t]) => `<button type="button" data-theme="${id}" class="theme${(state.theme || 'grass') === id ? ' on' : ''}" style="--sw-bg:${t.bg};--sw-fg:${t.fg}">${esc(t.name)}</button>`).join('')}</div>
+    ${W.profile.ctx.length ? `<div class="sub">Raccourcis ${esc(W.profile.id === 'agent' ? 'des agents' : `de ${W.profile.id}`)}</div>
+    <div class="chips" id="ctxpick">${W.profile.ctx.map((x) => `<button type="button" data-l="${esc(x.l)}" class="${ctxShown(W.profile).includes(x.l) ? 'on' : ''}">${esc(x.l)}</button>`).join('')}</div>
+    <p class="hint">Touche un raccourci pour l'afficher ou le cacher. La rangée se replie en une puce au-dessus du clavier.</p>` : ''}
+    <div class="list menu" style="margin-top:16px">
       <button class="row" data-a="kill"><div class="main"><b style="color:var(--danger)">Fermer la fenêtre</b><small>tmux kill-window</small></div></button>
     </div>`, (el) => {
     $$('.row', el).forEach((r) => r.addEventListener('click', async () => {
@@ -1791,11 +2192,33 @@ $('#win-menu').addEventListener('click', () => {
         srv.fit = srv.fit === false; save();
         if (srv.fit) await fitToPhone(); else { await api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {}); W.fitted = false; }
         W.last = ''; tick();
+      } else if (a === 'kb') {
+        if (W.mode !== 'term') setMode('term');
+        setKb(!KBD.on);
+      } else if (a.startsWith('kb-')) {
+        const k = kbPrefs();
+        if (a === 'kb-layout') k.layout = k.layout === 'azerty' ? 'qwerty' : 'azerty';
+        if (a === 'kb-alpha') k.alpha = { glass: 'clear', clear: 'solid', solid: 'glass' }[k.alpha];
+        if (a === 'kb-overlay') k.overlay = !k.overlay;
+        save(); drawKb(); kbRefit();
       } else if (a === 'keys') setTimeout(openMoreKeys); // after this click has finished
       else if (a === 'kill') {
         try { await api(srv, 'kill', { target: W.win }); W.fitted = false; back(); } catch (e) { toast(e.message); }
       }
     }));
+    $('#themes', el).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-theme]'); if (!b) return;
+      state.theme = b.dataset.theme; save(); applyTheme(); W.last = ''; tick();
+      $$('#themes button', el).forEach((x) => x.classList.toggle('on', x === b));
+    });
+    $('#ctxpick', el)?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-l]'); if (!b) return;
+      const shown = new Set(ctxShown(W.profile));
+      shown.has(b.dataset.l) ? shown.delete(b.dataset.l) : shown.add(b.dataset.l);
+      state.ctx = { ...state.ctx, [W.profile.id]: W.profile.ctx.map((x) => x.l).filter((l) => shown.has(l)) };
+      save(); b.classList.toggle('on', shown.has(b.dataset.l));
+      drawCtx(); kbRefit();
+    });
   });
 });
 
