@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -37,12 +37,17 @@ html, body, #app { touch-action: manipulation; }
 /* The page itself never scrolls: on iOS the keyboard would scroll it away. The app follows the visual viewport instead. */
 html, body { position: fixed; inset: 0; overflow: hidden; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
-input, textarea, select { font: inherit; color: var(--text); }
+/* 16px floor on every field (not only .field / .inline): below it iOS zooms the page on focus
+   and never zooms back out by itself. font:inherit alone is not enough — Safari's UA sheet
+   sizes bare inputs at ~11px. */
+input, textarea, select { font: inherit; font-size: 16px; color: var(--text); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* ---------- phone frame on desktop (simulation) ---------- */
-#stage { position: fixed; left: 0; right: 0; top: 0; height: var(--app-h); transform: translateY(var(--app-top, 0px));
+/* Use top, never transform: a transformed ancestor makes iOS Safari zoom on focus
+   even when the field is 16px (it misreads the rendered size). */
+#stage { position: fixed; left: 0; right: 0; top: var(--app-top, 0px); height: var(--app-h);
   display: flex; justify-content: center; align-items: center; gap: 48px; }
 #app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
 #aside { display: none; max-width: 300px; color: var(--muted); font-size: 14px; }
@@ -960,34 +965,51 @@ const closeSheet = () => $('#sheet').classList.remove('on');
 $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
 
 // iOS keyboard: keep the whole app (header, content, keys, composer) inside the visible area above it.
+// While a field is focused we only shrink the height and keep top at 0. Chasing visualViewport.offsetTop
+// fights Safari's own scroll-into-view and the sheet/composer jump up and down (looks like auto-zoom).
 if (window.visualViewport) {
   const vv = window.visualViewport, root = document.documentElement.style;
   let refit, frame = 0, last = '';
   const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+  const keepFieldInSheet = () => {
+    const f = document.activeElement, sheet = typing() && f.closest?.('.sheet');
+    if (!sheet) return;
+    const r = f.getBoundingClientRect(), s = sheet.getBoundingClientRect();
+    if (r.bottom > s.bottom - 12) sheet.scrollTop += r.bottom - s.bottom + 12;
+    else if (r.top < s.top + 8) sheet.scrollTop -= s.top + 8 - r.top;
+  };
   const apply = () => {
     frame = 0;
-    // Pinch zoom also shrinks the visual viewport: following it would resize the app under the user's fingers.
+    const focused = typing();
+    // Pinch-zoom: don't resize under the fingers. Focus-zoom must not happen (16px fields + no
+    // transform on #stage); if the page is still scaled, freeze rather than amplify the jump.
     if (vv.scale > 1.01) return;
-    // While a field has focus iOS scrolls the page to reveal it; scrolling back would fight it and the screen
-    // bounces between the two. Reset only once the keyboard is gone.
-    if (window.scrollY && !typing()) window.scrollTo(0, 0);
-    const h = Math.round(vv.height), top = Math.round(vv.offsetTop);
-    if (`${h}|${top}` === last) return;
+    // The app is position:fixed; the document must stay at 0. Do not reset while typing —
+    // Safari scrolls to reveal the field and fighting it makes the sheet bounce.
+    if (!focused && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+    const h = Math.round(vv.height);
+    // offsetTop only when nothing is focused (address-bar / pinch pan). During typing it is the
+    // scroll-into-view offset and applying it doubles the shift.
+    const top = focused ? 0 : Math.round(vv.offsetTop);
+    if (`${h}|${top}` === last) { if (focused) keepFieldInSheet(); return; }
     last = `${h}|${top}`;
     root.setProperty('--app-h', `${h}px`);
     root.setProperty('--app-top', `${top}px`);
-    // A field in a sheet stays visible inside the sheet, which is now shorter.
-    const f = document.activeElement, sheet = typing() && f.closest('.sheet');
-    if (sheet) {
-      const r = f.getBoundingClientRect(), s = sheet.getBoundingClientRect();
-      if (r.bottom > s.bottom - 12) sheet.scrollTop += r.bottom - s.bottom + 12;
-    }
+    keepFieldInSheet();
     // The terminal gets fewer rows while the keyboard is open, so the TUI redraws its input line in view.
     clearTimeout(refit);
     refit = setTimeout(() => { if (nav.length && nav[nav.length - 1].id === 'v-window' && W.mode === 'term') fitToPhone().then(tick); }, 250);
   };
   const fit = () => { if (!frame) frame = requestAnimationFrame(apply); };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+  document.addEventListener('focusin', (e) => {
+    if (!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '')) return;
+    // Drop any leftover document scroll / offset before the keyboard animation starts.
+    window.scrollTo(0, 0);
+    root.setProperty('--app-top', '0px');
+    last = '';
+    fit();
+  });
   document.addEventListener('focusout', () => setTimeout(fit, 60));
   fit();
 }
