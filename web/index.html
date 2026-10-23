@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
-<meta name="tmux-pocket-ui" content="native-agents-1">
+<meta name="tmux-pocket-ui" content="dashboard-edit-1">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
 /* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
@@ -153,19 +153,28 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 /* ---------- dashboard board ---------- */
-.board-head { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 14px; min-width: 0; }
-.board-pulse { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 28px; }
+.board-head { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 10px; min-width: 0; }
+.board-pulse { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 24px; }
 .board-pulse .pill { font-variant-numeric: tabular-nums; }
 .board-pulse .quiet { color: var(--muted); font: 12.5px/1.3 var(--ui); padding: 0 2px; }
-.board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 100px; min-width: 0; align-content: start; }
-.board[data-layout="list"] { display: flex; flex-direction: column; }
-.board .group-title.sess { grid-column: 1 / -1; margin-top: 8px; }
+.board { display: flex; flex-direction: column; gap: 8px; padding-bottom: 110px; min-width: 0; align-content: start; }
+.board[data-layout="grid"] { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Phones: never force a cramped 2-col grid — list is the readable default. */
+@media (max-width: 540px) {
+  .board[data-layout="grid"] { grid-template-columns: 1fr; }
+}
+.board .group-title.sess { grid-column: 1 / -1; margin-top: 6px; }
 .board .group-title.sess:first-child { margin-top: 0; }
-.board-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.board-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 0; }
 .board-tools .seg { margin-left: auto; }
-.board-tools .seg button { padding: 6px 12px; font-size: 12px; }
-.board-help-link { color: var(--muted); font: 600 12.5px var(--ui); padding: 6px 2px; }
-.board-help-link:active { color: var(--accent); }
+.board-tools .seg button { padding: 7px 12px; font-size: 12.5px; min-height: 34px; }
+.board-edit-btn { min-height: 34px; padding: 7px 14px; border-radius: 11px; border: 1px solid var(--line-2);
+  background: var(--surface-2); color: var(--text); font: 650 13px var(--ui); }
+.board-edit-btn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.board-edit-hint { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--accent-soft); color: var(--text-2); font: 500 12.5px/1.4 var(--ui); }
+.board[data-editing="1"] .board-edit-hint { display: block; }
+.board-edit-hint[hidden] { display: none !important; }
 details.miss-agents { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
 details.miss-agents summary { color: var(--muted); padding: 10px 4px; cursor: pointer; font: 600 13px var(--ui); list-style: none; display: flex; align-items: center; gap: 8px; }
 details.miss-agents summary::-webkit-details-marker { display: none; }
@@ -174,41 +183,62 @@ details.miss-agents[open] summary::before { content: "▾"; }
 details.miss-agents summary small { color: var(--muted); font: 500 12px var(--mono); margin-left: auto; }
 /* Swipe row: delete action sits under the tile; tile slides left. */
 .brow { position: relative; border-radius: 16px; overflow: hidden; min-width: 0; background: var(--danger); }
-.board:not([data-layout="list"]) .brow { min-width: 0; }
-.board:not([data-layout="list"]) .brow[data-span="2"] { grid-column: 1 / -1; }
-.board:not([data-layout="list"]) .btile .main b { font-size: 14.5px; }
-.board:not([data-layout="list"]) .btile .preview { font-size: 11px; }
+.board[data-layout="grid"] .brow { min-width: 0; }
+.board[data-layout="grid"] .brow[data-span="2"] { grid-column: 1 / -1; }
+.board[data-layout="grid"] .btile .main b { font-size: 15px; }
+.board[data-layout="grid"] .btile .preview { font-size: 11.5px; }
 .bdel { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; border: 0; background: transparent; color: #fff;
   font: 700 13px var(--ui); display: grid; place-items: center; letter-spacing: .01em; }
 .btile { position: relative; display: block; width: 100%; max-width: 100%; min-width: 0; text-align: left; border-radius: 16px; padding: 12px 14px;
   background: var(--surface); border: 1px solid var(--line); overflow: hidden;
-  transition: transform .2s cubic-bezier(.2,.8,.2,1), background .12s ease; touch-action: pan-y;
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), background .12s ease, box-shadow .15s ease; touch-action: pan-y;
   user-select: none; -webkit-user-select: none;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--tile-c, transparent) 55%, transparent); }
 .btile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tile-c, var(--line-2)); }
 .brow.open .btile, .btile.snap { transition: transform .2s cubic-bezier(.2,.8,.2,1); }
 .btile.pressing { background: var(--surface-2); }
 .btile.swiping { touch-action: none; transition: none; }
+.btile.dragging { z-index: 6; box-shadow: 0 12px 28px rgba(0,0,0,.35); touch-action: none; transition: none;
+  border-color: var(--accent); }
+.btile.drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
 .btile .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.btile .swatch { width: 28px; height: 28px; border-radius: 8px; flex: none; display: grid; place-items: center;
+.btile .swatch { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center;
   background: color-mix(in srgb, var(--tile-c, var(--muted)) 22%, var(--surface-3));
-  color: var(--tile-c, var(--text-2)); font: 700 13px var(--mono); }
+  color: var(--tile-c, var(--text-2)); font: 700 14px var(--mono); }
 .btile .main { flex: 1; min-width: 0; overflow: hidden; }
-.btile .main b { display: block; font-size: 16px; font-weight: 650; letter-spacing: -.01em;
+.btile .main b { display: block; font-size: 16.5px; font-weight: 650; letter-spacing: -.01em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .btile .main small { display: block; color: var(--muted); font: 12px/1.35 var(--mono); margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Preview stays inside the tile: wrap long lines, clip vertically by size — never spill out. */
 .btile .preview { margin-top: 10px; padding: 8px 10px; border-radius: 10px; min-width: 0; max-width: 100%;
   overflow: hidden; background: var(--bg-2); border: 1px solid var(--line);
-  font: 12px/1.4 var(--mono); color: var(--text-2); }
+  font: 12.5px/1.4 var(--mono); color: var(--text-2); }
 .btile[data-size="s"] .preview { display: none; }
-.btile[data-size="m"] .preview { max-height: 4.6em; }
-.btile[data-size="l"] .preview { max-height: 12.2em; }
-.btile[data-size="xl"] .preview { max-height: 22.4em; }
+.btile[data-size="m"] .preview { max-height: 2.9em; }
+.btile[data-size="l"] .preview { max-height: 11em; }
+.btile[data-size="xl"] .preview { max-height: 20em; }
+@media (max-width: 540px) {
+  .btile { padding: 10px 12px; border-radius: 14px; }
+  .btile .preview { margin-top: 8px; padding: 7px 9px; }
+  .btile[data-size="m"] .preview { max-height: 2.6em; }
+  #v-windows .large-title h1 { font-size: 28px; }
+  #v-windows .large-title { margin-bottom: 4px; }
+}
 .btile .preview div { display: block; max-width: 100%; min-width: 0;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .btile .preview div:last-child { color: var(--text); }
+/* Edit mode: obvious reorder controls on every tile. */
+.tile-ops { display: none; align-items: center; gap: 4px; flex: none; margin-left: 2px; }
+.board[data-editing="1"] .tile-ops { display: flex; }
+.board[data-editing="1"] .btile { padding-right: 10px; }
+.board[data-editing="1"] .btile .preview { opacity: .72; }
+.tile-ops button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); font: 700 15px/1 var(--ui); display: grid; place-items: center; }
+.tile-ops button:active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.tile-ops .bdrag { cursor: grab; touch-action: none; color: var(--muted); letter-spacing: -2px; font-size: 16px; }
+.tile-ops .bdrag:active { cursor: grabbing; }
+.board[data-editing="1"] .bdel { display: none; } /* delete via tile sheet while editing */
 .swatch-pick { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatch-pick button { width: 36px; height: 36px; border-radius: 11px; border: 2px solid transparent; background: var(--sw); }
 .swatch-pick button.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--sw); }
@@ -1653,11 +1683,23 @@ const guessSize = (w) => (/log|tail|journal/i.test(`${w.name} ${w.command}`) ? '
 const tileId = (w) => `${w.session}:${w.window}`;
 function boardOf() {
   if (!state.board) state.board = {};
-  if (!state.board[srv.id]) state.board[srv.id] = { order: [], tiles: {}, layout: 'grid' };
+  if (!state.board[srv.id]) state.board[srv.id] = { order: [], tiles: {}, layout: 'auto', editing: false };
   const b = state.board[srv.id];
-  if (!b.layout) b.layout = 'grid';
+  if (!b.tiles) b.tiles = {};
+  if (!Array.isArray(b.order)) b.order = [];
+  // Older builds always persisted layout:'grid'. Until the user picks Liste/Grille, treat as auto.
+  if (!b.layoutPinned && b.layout === 'grid') b.layout = 'auto';
+  if (b.layout !== 'list' && b.layout !== 'grid' && b.layout !== 'auto') b.layout = 'auto';
+  b.editing = !!b.editing;
   return b;
 }
+/** Effective layout: user pick, else list on phones / grid on wider screens. */
+function boardLayout() {
+  const b = boardOf();
+  if (b.layout === 'list' || b.layout === 'grid') return b.layout;
+  return (typeof matchMedia === 'function' && matchMedia('(max-width: 540px)').matches) ? 'list' : 'grid';
+}
+function boardEditing() { return !!boardOf().editing; }
 function tileMeta(w) {
   const b = boardOf(), id = tileId(w);
   const t = b.tiles[id] || {};
@@ -1716,10 +1758,16 @@ function previewOf(w, n) {
 function renderTile(w, openId) {
   const meta = tileMeta(w), pv = previewOf(w), [g] = glyphOf(w);
   const label = displayName(w);
-  const sub = [w.command, `${w.session}:${w.window}`, w.name !== label ? w.name : '', ago(w.activity)].filter(Boolean).join(' · ');
+  // Short sub on the board — full tmux path lives in the tile editor.
+  const sub = [w.command || w.name, ago(w.activity)].filter(Boolean).join(' · ');
   const open = openId === meta.id ? ' open' : '';
   const tx = openId === meta.id ? ' style="transform:translateX(-88px)"' : '';
   const span = meta.size === 'l' || meta.size === 'xl' ? '2' : '1';
+  const ops = `<div class="tile-ops" aria-label="Réordonner">
+      <button type="button" class="bdrag" data-drag aria-label="Glisser pour déplacer">⋮⋮</button>
+      <button type="button" data-move="-1" aria-label="Monter">↑</button>
+      <button type="button" data-move="1" aria-label="Descendre">↓</button>
+    </div>`;
   return `<div class="brow${open}" data-id="${esc(meta.id)}" data-span="${span}">
     <button type="button" class="bdel" data-del aria-label="Supprimer ${esc(label)}">Supprimer</button>
     <article class="btile" role="button" tabindex="0" data-id="${esc(meta.id)}" data-s="${esc(w.session)}" data-w="${w.window}" data-size="${meta.size}" style="--tile-c:${TILE_COLORS[meta.color]}" aria-label="${esc(label)}"${tx}>
@@ -1727,6 +1775,7 @@ function renderTile(w, openId) {
         <span class="swatch" aria-hidden="true">${esc(g)}</span>
         <div class="main"><b>${esc(label)}</b><small>${esc(sub)}</small></div>
         ${PILL[pv.status]}
+        ${ops}
       </div>
       ${pv.lines.length ? `<div class="preview">${pv.lines.map((l) => `<div>${esc(l.trim())}</div>`).join('')}</div>` : ''}
     </article>
@@ -1763,18 +1812,22 @@ function drawWindows(windows) {
     stats.waiting ? `<span class="pill waiting"><i class="sdot waiting"></i>${stats.waiting} t'attend</span>` : '',
     !stats.working && !stats.waiting ? `<span class="quiet">${windows.length} fenêtre${windows.length > 1 ? 's' : ''} · tout est calme</span>` : `<span class="quiet">${windows.length} au total</span>`,
   ].join('');
-  const layout = boardOf().layout === 'list' ? 'list' : 'grid';
+  const layout = boardLayout();
+  const editing = boardEditing();
   const html = `<div class="board-head">
     <div class="board-pulse">${pulse}</div>
     <div class="board-tools">
-      <button type="button" class="board-help-link" data-board-help aria-label="Personnaliser le dashboard">Aide</button>
+      <button type="button" class="board-edit-btn${editing ? ' on' : ''}" data-board-edit aria-pressed="${editing ? 'true' : 'false'}">${editing ? 'OK' : 'Modifier'}</button>
       <div class="seg" role="group" aria-label="Disposition du dashboard">
-        <button type="button" data-layout="grid" class="${layout === 'grid' ? 'on' : ''}">Grille</button>
         <button type="button" data-layout="list" class="${layout === 'list' ? 'on' : ''}">Liste</button>
+        <button type="button" data-layout="grid" class="${layout === 'grid' ? 'on' : ''}">Grille</button>
       </div>
     </div>
   </div>
-    <div class="board" id="board" data-layout="${layout}">${board}</div>`;
+    <div class="board" id="board" data-layout="${layout}" data-editing="${editing ? '1' : '0'}">
+      <p class="board-edit-hint" ${editing ? '' : 'hidden'}>Mode édition : ↑↓ ou glisse ⋮⋮ pour réordonner · touche une tuile pour nom, couleur, taille.</p>
+      ${board}
+    </div>`;
   if (html !== lastListHtml) {
     lastListHtml = html;
     box.innerHTML = html;
@@ -1783,16 +1836,33 @@ function drawWindows(windows) {
 }
 $('#edit-server').addEventListener('click', () => go('v-form', () => fillForm(srv.id)));
 
-function moveTile(id, dir) {
+function sessionPeers(id) {
   const b = boardOf();
-  const win = lastWindows.find((x) => tileId(x) === id); if (!win) return;
-  // Keep order inside the session group — the board stays session-sorted.
+  const win = lastWindows.find((x) => tileId(x) === id);
+  if (!win) return { peers: [], index: -1 };
   const peers = b.order.filter((oid) => oid.startsWith(`${win.session}:`));
-  const i = peers.indexOf(id), j = i + dir;
-  if (i < 0 || j < 0 || j >= peers.length) return;
-  const gi = b.order.indexOf(id), gj = b.order.indexOf(peers[j]);
-  [b.order[gi], b.order[gj]] = [b.order[gj], b.order[gi]];
+  return { peers, index: peers.indexOf(id), session: win.session };
+}
+function moveTile(id, dir) {
+  const { peers, index: i } = sessionPeers(id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= peers.length) return false;
+  return moveTileTo(id, peers[j], dir > 0 ? 'after' : 'before');
+}
+/** Place `id` before/after `anchorId` within the same session group. */
+function moveTileTo(id, anchorId, where = 'before') {
+  const b = boardOf();
+  if (!id || !anchorId || id === anchorId) return false;
+  const { peers } = sessionPeers(id);
+  if (!peers.includes(anchorId)) return false;
+  const without = b.order.filter((oid) => oid !== id);
+  let at = without.indexOf(anchorId);
+  if (at < 0) return false;
+  if (where === 'after') at += 1;
+  without.splice(at, 0, id);
+  b.order = without;
   save(); lastListHtml = ''; drawWindows(lastWindows);
+  return true;
 }
 function remapBoardSession(from, to) {
   const b = boardOf();
@@ -1862,9 +1932,10 @@ function openTileEditor(w) {
       <label class="field"><span>Nom de la fenêtre</span><input id="tile-tmux" value="${esc(w.name)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
       <label class="field"><span>Session</span><input id="tile-sess" value="${esc(w.session)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
     </div>
-    <div class="list menu" style="margin-top:16px">
-      <button class="row" type="button" data-a="up"><div class="main"><b>Monter</b><small>réordonner dans le tableau</small></div></button>
-      <button class="row" type="button" data-a="down"><div class="main"><b>Descendre</b><small>réordonner dans le tableau</small></div></button>
+    <div class="sub">Ordre dans ${esc(w.session)}</div>
+    <div class="size-pick" id="tile-order" style="margin-bottom:4px">
+      <button type="button" data-a="up">↑ Monter<small>dans la session</small></button>
+      <button type="button" data-a="down">↓ Descendre<small>dans la session</small></button>
     </div>
     <button type="button" class="btn" id="tile-save" style="margin-top:14px">Enregistrer</button>
     <button type="button" class="btn danger" id="tile-kill">Supprimer la fenêtre…</button>`, (el) => {
@@ -1876,10 +1947,11 @@ function openTileEditor(w) {
       const b = e.target.closest('[data-z]'); if (!b) return;
       size = b.dataset.z; $$('#tile-size button', el).forEach((x) => x.classList.toggle('on', x === b));
     });
-    $$('[data-a]', el).forEach((r) => r.addEventListener('click', () => {
-      moveTile(tileId(w), r.dataset.a === 'up' ? -1 : 1);
-      closeSheet();
-    }));
+    $('#tile-order', el).addEventListener('click', (e) => {
+      const r = e.target.closest('[data-a]'); if (!r) return;
+      const ok = moveTile(tileId(w), r.dataset.a === 'up' ? -1 : 1);
+      toast(ok ? 'Tuile déplacée' : 'Déjà en bout de session', ok);
+    });
     $('#tile-save', el).addEventListener('click', async () => {
       title = ($('#tile-title', el).value || '').trim();
       const tmuxName = ($('#tile-tmux', el).value || '').trim();
@@ -1904,7 +1976,8 @@ function openTileEditor(w) {
   });
 }
 
-// Gestures: tap = open, long-press = edit (+ haptic), swipe left = reveal delete.
+// Gestures: tap = open (or edit in Modifier mode), long-press = edit, swipe left = delete.
+// In Modifier mode: ↑↓ and ⋮⋮ drag reorder are primary (long-press alone was too hidden).
 const SWIPE_W = 88;
 let boardGest = null;
 const winFromEl = (el) => {
@@ -1920,32 +1993,119 @@ const closeOpenRows = (except) => {
   });
   if (boardGest) boardGest.openId = except?.dataset?.id || '';
 };
+function clearDropTargets() {
+  $$('#board .btile.drop-target').forEach((t) => t.classList.remove('drop-target'));
+}
+function peerTiles(session) {
+  return [...document.querySelectorAll(`#board .btile[data-s="${CSS.escape(session)}"]`)];
+}
+function startDragReorder(tile, e) {
+  const id = tile.dataset.id;
+  const session = tile.dataset.s;
+  boardGest = {
+    mode: 'drag', tile, id, session, pid: e.pointerId,
+    y0: e.clientY, x0: e.clientX, moved: false, done: false,
+    originTop: tile.getBoundingClientRect().top,
+  };
+  tile.classList.add('dragging');
+  tile.classList.remove('pressing');
+  try { tile.setPointerCapture(e.pointerId); } catch {}
+  haptic(10);
+}
+function updateDragReorder(e) {
+  const g = boardGest; if (!g || g.mode !== 'drag' || !g.tile) return;
+  if (g.pid != null && e.pointerId !== g.pid) return;
+  e.preventDefault();
+  const dy = e.clientY - g.y0;
+  if (Math.abs(dy) > 4 || Math.abs(e.clientX - g.x0) > 4) g.moved = true;
+  g.tile.style.transform = `translateY(${dy}px)`;
+  clearDropTargets();
+  const y = e.clientY;
+  let over = null;
+  for (const t of peerTiles(g.session)) {
+    if (t === g.tile) continue;
+    const r = t.getBoundingClientRect();
+    if (y >= r.top && y <= r.bottom) { over = t; break; }
+  }
+  if (over) {
+    over.classList.add('drop-target');
+    g.dropId = over.dataset.id;
+    const mid = over.getBoundingClientRect().top + over.getBoundingClientRect().height / 2;
+    g.dropWhere = y < mid ? 'before' : 'after';
+  } else {
+    g.dropId = null;
+  }
+}
+function endDragReorder(e) {
+  const g = boardGest; if (!g || g.mode !== 'drag' || !g.tile || g.done) return;
+  if (e && g.pid != null && e.pointerId !== g.pid) return;
+  g.done = true;
+  g.tile.classList.remove('dragging');
+  g.tile.style.transform = '';
+  clearDropTargets();
+  const dropId = g.dropId, where = g.dropWhere, id = g.id;
+  boardGest = { openId: '' };
+  if (dropId) {
+    const ok = moveTileTo(id, dropId, where);
+    if (ok) toast('Tuile déplacée', true);
+  }
+}
 $('#windows').addEventListener('pointerdown', (e) => {
-  // button[data-layout] only — #board also has data-layout and must not swallow tile taps.
-  if (e.target.closest('[data-new], [data-retry], button[data-layout], [data-board-help], .bdel, .sess-acts, .appearance-toggle')) return;
+  // Controls that own the click — don't start a tile gesture.
+  if (e.target.closest('[data-new], [data-retry], button[data-layout], [data-board-edit], .bdel, .sess-acts, .appearance-toggle, [data-move]')) return;
+  const drag = e.target.closest('[data-drag]');
+  if (drag) {
+    const tile = drag.closest('.btile'); if (!tile) return;
+    e.preventDefault();
+    startDragReorder(tile, e);
+    return;
+  }
   const tile = e.target.closest('.btile'); if (!tile) return;
+  // In edit mode, a plain tap opens the editor — no swipe/long-press needed.
+  if (boardEditing()) {
+    boardGest = {
+      mode: 'edit-tap', tile, id: tile.dataset.id, x: e.clientX, y: e.clientY,
+      moved: false, pid: e.pointerId, done: false,
+    };
+    tile.classList.add('pressing');
+    try { tile.setPointerCapture(e.pointerId); } catch {}
+    return;
+  }
   const row = tile.closest('.brow');
   closeOpenRows(row.classList.contains('open') ? row : null);
   tile.classList.add('pressing');
   boardGest = {
-    tile, row, id: tile.dataset.id, x: e.clientX, y: e.clientY, ox: row.classList.contains('open') ? -SWIPE_W : 0,
+    mode: 'nav', tile, row, id: tile.dataset.id, x: e.clientX, y: e.clientY,
+    ox: row.classList.contains('open') ? -SWIPE_W : 0,
     swiping: false, moved: false, long: null, opened: false, pid: e.pointerId,
   };
   boardGest.long = setTimeout(() => {
-    if (!boardGest || boardGest.moved || boardGest.swiping) return;
+    if (!boardGest || boardGest.moved || boardGest.swiping || boardGest.mode !== 'nav') return;
     boardGest.opened = true;
     tile.classList.remove('pressing', 'swiping');
     haptic(16);
     const w = winFromEl(tile);
     boardGest = null;
+    // Enter edit mode so ↑↓ / drag stay visible after the sheet.
+    boardOf().editing = true; save(); lastListHtml = ''; drawWindows(lastWindows);
     if (w) openTileEditor(w);
   }, 420);
   try { tile.setPointerCapture(e.pointerId); } catch {}
 });
 $('#windows').addEventListener('pointermove', (e) => {
-  const g = boardGest; if (!g || g.opened || !g.tile) return;
+  const g = boardGest; if (!g || g.opened || !g.tile || g.done) return;
   if (g.pid != null && e.pointerId !== g.pid) return;
+  if (g.mode === 'drag') return updateDragReorder(e);
   const dx = e.clientX - g.x, dy = e.clientY - g.y;
+  if (g.mode === 'edit-tap') {
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+      g.moved = true;
+      g.tile.classList.remove('pressing');
+      try { g.tile.releasePointerCapture(g.pid); } catch {}
+      boardGest = null;
+    }
+    return;
+  }
   if (!g.swiping && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
     g.moved = true;
     // Prefer horizontal swipe once the finger/mouse clearly moves sideways.
@@ -1973,10 +2133,20 @@ $('#windows').addEventListener('pointermove', (e) => {
 const endBoardGest = (e) => {
   const g = boardGest; if (!g?.tile || g.done) return; // openId-only marker must not run the end path
   if (e && g.pid != null && e.pointerId !== g.pid) return;
+  if (g.mode === 'drag') return endDragReorder(e);
   g.done = true;
   clearTimeout(g.long);
   g.tile.classList.remove('pressing', 'swiping');
   if (g.opened) { boardGest = null; return; }
+  if (g.mode === 'edit-tap') {
+    const tap = !g.moved && (!e || e.type !== 'pointercancel');
+    boardGest = { openId: '' };
+    if (tap) {
+      const w = winFromEl(g.tile);
+      if (w) openTileEditor(w);
+    }
+    return;
+  }
   if (g.swiping) {
     g.tile.style.transition = '';
     const open = (g.tx ?? g.ox) < -SWIPE_W * 0.4;
@@ -2006,25 +2176,30 @@ $('#windows').addEventListener('lostpointercapture', endBoardGest);
 $('#windows').addEventListener('click', (e) => {
   if (e.target.closest('[data-retry]')) return refreshWindows();
   if (e.target.closest('[data-new]')) return $('#new-window').click();
+  const moveBtn = e.target.closest('[data-move]');
+  if (moveBtn) {
+    e.preventDefault();
+    const tile = moveBtn.closest('.btile');
+    const id = tile?.dataset?.id;
+    const dir = Number(moveBtn.dataset.move);
+    if (id && dir) {
+      const ok = moveTile(id, dir);
+      toast(ok ? 'Tuile déplacée' : 'Déjà en bout de session', ok);
+    }
+    return;
+  }
   const layoutBtn = e.target.closest('button[data-layout]');
   if (layoutBtn) {
-    boardOf().layout = layoutBtn.dataset.layout === 'list' ? 'list' : 'grid';
+    const b = boardOf();
+    b.layout = layoutBtn.dataset.layout === 'list' ? 'list' : 'grid';
+    b.layoutPinned = true;
     save(); lastListHtml = ''; drawWindows(lastWindows);
     return;
   }
-  if (e.target.closest('[data-board-help]')) {
-    openSheet(`<h3>Personnaliser le dashboard</h3>
-      <p class="hint" style="margin:0 0 12px">Chaque tuile est réglable sur ce téléphone. Les noms tmux restent inchangés sauf si tu les modifies dans la fiche.</p>
-      <div class="list menu">
-        <div class="row"><div class="main"><b>Reste appuyé</b><small>nom local, couleur, taille d’aperçu, ordre</small></div></div>
-        <div class="row"><div class="main"><b>Glisse à gauche</b><small>supprimer la fenêtre tmux</small></div></div>
-        <div class="row"><div class="main"><b>Grille / Liste</b><small>disposition du tableau (logs en pleine largeur)</small></div></div>
-        <div class="row"><div class="main"><b>＋ sur une session</b><small>nouvelle fenêtre dans ce groupe</small></div></div>
-        <div class="row"><div class="main"><b>＋ en bas de page</b><small>nouvelle fenêtre — agents et shell</small></div></div>
-      </div>
-      <button type="button" class="btn" id="board-help-ok" style="margin-top:14px">Compris</button>`, (el) => {
-      $('#board-help-ok', el).onclick = closeSheet;
-    });
+  if (e.target.closest('[data-board-edit]')) {
+    const b = boardOf();
+    b.editing = !b.editing;
+    save(); lastListHtml = ''; drawWindows(lastWindows);
     return;
   }
   const sessNew = e.target.closest('[data-sess-new]');
