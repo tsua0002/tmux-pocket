@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,7 +20,7 @@
   --accent: #5be3a4; --accent-ink: #03150c; --accent-soft: rgba(91,227,164,.14);
   --wait: #f5b84a; --wait-soft: rgba(245,184,74,.14); --danger: #ff6b6b; --danger-soft: rgba(255,107,107,.14);
   --agent: #9d8cff; --agent-soft: rgba(157,140,255,.15);
-  --term-bg: #07080b; --term-fg: #d7dae0;
+  --term-bg: #13773d; --term-fg: #fff0a5; --term-cursor: #8c2800; --term-font: Menlo, "SF Mono", ui-monospace, monospace;
   --bar: rgba(12,14,18,.78); --blur: saturate(1.6) blur(18px);
   --r-s: 10px; --r: 14px; --r-l: 22px;
   --ui: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
@@ -32,6 +32,8 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 var(--ui);
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior: none; }
+/* No double-tap zoom anywhere: two quick taps (ctrl, then a key) would zoom the page and cancel the second tap. */
+html, body, #app { touch-action: manipulation; }
 /* The page itself never scrolls: on iOS the keyboard would scroll it away. The app follows the visual viewport instead. */
 html, body { position: fixed; inset: 0; overflow: hidden; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
@@ -173,6 +175,8 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chips button { padding: 7px 13px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font: 13.5px var(--mono); }
 .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.chips button.theme { background: var(--sw-bg); color: var(--sw-fg); border-color: rgba(255,255,255,.14); }
+.chips button.theme.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); font-weight: 700; }
 .inline { display: flex; gap: 8px; margin-top: 12px; }
 .inline input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--bg-2);
   font-family: var(--mono); font-size: 16px; outline: none; }
@@ -185,10 +189,10 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 #v-window header .seg { flex: none; }
 #v-window header .seg button { padding: 6px 11px; font-size: 12.5px; }
 #termwrap { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
-#termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; }
+#termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; touch-action: pan-x pan-y; }
 #termlines { padding: 6px 6px 10px; min-width: max-content; color: var(--term-fg); font-family: Menlo, "SF Mono", ui-monospace, monospace; white-space: pre; }
 #termlines > div { height: var(--lh); line-height: var(--lh); }
-#termlines .cur { background: var(--term-fg); color: var(--term-bg); }
+#termlines .cur { background: var(--term-cursor); color: var(--term-bg); }
 #tobottom { position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
   background: rgba(35,39,51,.92); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--line-2);
   color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
@@ -242,42 +246,47 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 #v-window[data-mode="chat"] .kb-show { display: none; }
 #v-window.kb-on .dock { display: none; }
 
-/* terminal keyboard: drawn inside the terminal and see-through, so the TUI stays visible behind it.
-   Every tap is a keystroke sent to the pane; the iOS keyboard and its autocorrect never get involved. */
+/* terminal keyboard: drawn inside the terminal, in its colours and font, and see-through so the TUI stays visible
+   behind it. Every tap is a keystroke sent to the pane; the iOS keyboard and its autocorrect never get involved. */
 .tkb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 4px 3px calc(env(safe-area-inset-bottom) + 4px);
-  --kh: 42px; --key: rgba(255,255,255,.12); --key-fn: rgba(255,255,255,.055); --kb-bg: rgba(7,8,11,.5); --kb-blur: 10px;
-  background: var(--kb-bg); -webkit-backdrop-filter: blur(var(--kb-blur)) saturate(1.4); backdrop-filter: blur(var(--kb-blur)) saturate(1.4);
-  border-top: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.tkb[data-alpha="clear"] { --kb-bg: rgba(7,8,11,.14); --kb-blur: 0px; --key: rgba(255,255,255,.1); --key-fn: rgba(255,255,255,.05); }
-.tkb[data-alpha="solid"] { --kb-bg: rgba(12,14,18,.97); --key: var(--surface-3); --key-fn: var(--surface-2); }
+  --kh: 42px; --kb-a: 62%; --kb-blur: 10px; --key-a: 13%; --fn-a: 6%;
+  --key: color-mix(in srgb, var(--term-fg) var(--key-a), transparent); --key-fn: color-mix(in srgb, var(--term-fg) var(--fn-a), transparent);
+  background: color-mix(in srgb, var(--term-bg) var(--kb-a), transparent); color: var(--term-fg);
+  -webkit-backdrop-filter: blur(var(--kb-blur)); backdrop-filter: blur(var(--kb-blur));
+  border-top: 1px solid color-mix(in srgb, var(--term-fg) 16%, transparent);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.tkb[data-alpha="clear"] { --kb-a: 18%; --kb-blur: 0px; --key-a: 11%; --fn-a: 5%; }
+.tkb[data-alpha="solid"] { --kb-a: 100%; --key-a: 15%; --fn-a: 7%; }
 @media (max-height: 740px) { .tkb { --kh: 38px; } }
 .tkb .keyrow.ctx { padding: 2px 4px 3px; touch-action: pan-x; }
-.tkb .keyrow.ctx button { background: var(--key-fn); border-color: rgba(255,255,255,.06); }
+.tkb .keyrow.ctx button { background: var(--key-fn); border-color: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); font-family: var(--term-font); }
+.tkb .keyrow.ctx button small { color: inherit; opacity: .65; }
 .tkb-row { display: flex; gap: 5px; padding: 3px 2px; }
 .tkb-row > i { flex: var(--w, .5) 1 0; }
-.tkb-row button { flex: var(--w, 1) 1 0; min-width: 0; height: var(--kh); border-radius: 8px; display: grid; place-items: center;
-  background: var(--key); border: 1px solid rgba(255,255,255,.07); box-shadow: 0 1px 0 rgba(0,0,0,.4);
-  color: var(--text); font: 430 21px/1 var(--ui); text-shadow: 0 1px 2px rgba(0,0,0,.6); transition: background .08s ease; }
-.tkb-row button.fn { background: var(--key-fn); color: var(--text-2); font: 600 15px/1 var(--ui); }
-.tkb-row button.space { color: var(--text-2); font: 500 14px/1 var(--ui); }
-.tkb-row button.down { background: rgba(255,255,255,.3); }
-.tkb-row button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; text-shadow: none; }
+.tkb-row button { flex: var(--w, 1) 1 0; min-width: 0; height: var(--kh); border-radius: 7px; display: grid; place-items: center;
+  background: var(--key); border: 1px solid color-mix(in srgb, var(--term-fg) 10%, transparent);
+  color: var(--term-fg); font: 400 20px/1 var(--term-font); transition: background .08s ease; }
+.tkb-row button.fn { background: var(--key-fn); font-size: 15px; font-weight: 600; }
+.tkb-row button.space { font-size: 14px; opacity: .9; }
+.tkb-row button.down { background: color-mix(in srgb, var(--term-fg) 32%, transparent); }
+.tkb-row button.on { background: var(--term-fg); color: var(--term-bg); border-color: transparent; }
 .tkb-row button.lock .i { fill: currentColor; }
 .tkb-row button.lock::after { content: ""; position: absolute; margin-top: 28px; width: 14px; height: 2px; border-radius: 1px; background: currentColor; }
 .tkb-row button .i { width: 21px; height: 21px; }
 .tkb-acc { padding-bottom: 1px; }
-.tkb-acc button { height: 36px; background: transparent; border-color: transparent; box-shadow: none; color: var(--text-2); font: 600 14px/1 var(--mono); }
-.tkb-acc button.down { background: rgba(255,255,255,.16); }
+.tkb-acc button { height: 36px; background: transparent; border-color: transparent; font-size: 15px; font-weight: 600; }
+.tkb-acc button.down { background: color-mix(in srgb, var(--term-fg) 18%, transparent); }
 .tkb-acc button .i { width: 19px; height: 19px; }
 .tkb-acc button.fold .i { transition: transform .2s ease; }
 .tkb.folded .tkb-acc button.fold .i { transform: rotate(180deg); }
 .tkb.folded .tkb-keys { display: none; }
-.tkb-pop, .tkb-alts { position: absolute; z-index: 4; pointer-events: none; transform: translate(-50%, -100%); border-radius: 12px;
-  background: #2c303c; border: 1px solid var(--line-2); box-shadow: 0 10px 28px rgba(0,0,0,.55); color: var(--text); }
-.tkb-pop { min-width: 52px; padding: 8px 10px 10px; text-align: center; font: 400 32px/1 var(--ui); }
+.tkb-pop, .tkb-alts { position: absolute; z-index: 4; pointer-events: none; transform: translate(-50%, -100%); border-radius: 10px;
+  background: color-mix(in srgb, var(--term-bg) 88%, var(--term-fg)); border: 1px solid color-mix(in srgb, var(--term-fg) 28%, transparent);
+  box-shadow: 0 10px 28px rgba(0,0,0,.45); color: var(--term-fg); font-family: var(--term-font); }
+.tkb-pop { min-width: 52px; padding: 8px 10px 10px; text-align: center; font-size: 32px; line-height: 1; }
 .tkb-alts { display: flex; padding: 4px; gap: 2px; transform: translateY(-100%); }
-.tkb-alts span { width: 40px; height: 46px; display: grid; place-items: center; border-radius: 8px; font: 400 25px/1 var(--ui); }
-.tkb-alts span.sel { background: var(--accent); color: var(--accent-ink); }
+.tkb-alts span { width: 40px; height: 46px; display: grid; place-items: center; border-radius: 7px; font-size: 25px; line-height: 1; }
+.tkb-alts span.sel { background: var(--term-fg); color: var(--term-bg); }
 #termlines { padding-bottom: calc(10px + var(--kbpad, 0px)); }
 #tobottom { bottom: calc(14px + var(--kbh, 0px)); }
 
@@ -1260,6 +1269,9 @@ const PROFILES = [
     { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
 ];
 const profileOf = (w) => PROFILES.find((p) => p.match.test(w.command || '') || (p.id !== 'shell' && p.match.test(w.name || '')));
+// Shortcuts shown for a program, chosen in the window menu. pi keeps only compact by default: esc, ctrl and
+// the arrows already cover the rest.
+const ctxShown = (p) => state.ctx?.[p.id] ?? (p.id === 'pi' ? ['compacter'] : p.ctx.map((x) => x.l));
 
 // Generic keys; ctrl / alt / shift are sticky modifiers for the next key, from this bar or the keyboard.
 const KEYS = [
@@ -1285,7 +1297,8 @@ function drawCtx() {
   if (p.buffers && W.buffers.length) {
     html += W.buffers.map((b) => `<button type="button" data-buf="${b.n}" class="${b.current ? 'cur' : ''}">${b.n}·${esc(b.name)}${b.hot ? '<i class="dot"></i>' : ''}</button>`).join('');
   }
-  html += p.ctx.map((x, i) => keyBtn(x, i, 'ctx')).join('');
+  const shown = ctxShown(p);
+  html += p.ctx.map((x, i) => (shown.includes(x.l) ? keyBtn(x, i, 'ctx') : '')).join('');
   if (html !== W.ctxHtml) { W.ctxHtml = html; $('#ctxbar').innerHTML = html; $('#tkb-ctx').innerHTML = html; }
 }
 
@@ -1448,9 +1461,29 @@ async function tick() {
 // Regular programs (shell, pi in its default mode): the tmux history is loaded once, then only new lines,
 // and scrolled natively (inertia, selectable text, zero latency). Programs on the alternate screen
 // (pi fullscreen, WeeChat, htop…): swipes become mouse-wheel events (or Page keys), taps become clicks.
-const PALETTE = ['#1e1e1e', '#e05561', '#8cc265', '#d18f52', '#4aa5f0', '#c162de', '#42b3c2', '#d7dae0',
-  '#666e7a', '#ff616e', '#a5e075', '#f0a45d', '#4dc4ff', '#de73ff', '#4cd1e0', '#ffffff'];
-const TERM_FG = '#d7dae0', TERM_BG = '#0b0d10';
+// Terminal themes: the terminal and its keyboard take the same colours. Grass and the plain ones are
+// Terminal.app's classic profiles.
+const ANSI_APPLE = ['#000000', '#990000', '#00a600', '#999900', '#0000b2', '#b200b2', '#00a6b2', '#bfbfbf',
+  '#666666', '#e50000', '#00d900', '#e5e500', '#0000ff', '#e500e5', '#00e5e5', '#e5e5e5'];
+const THEMES = {
+  grass: { name: 'Grass', bg: '#13773d', fg: '#fff0a5', cursor: '#8c2800', ansi: ['#000000', '#bb0000', '#00bb00', '#e7b000', '#0000a3', '#950062',
+    '#00bbbb', '#bbbbbb', '#555555', '#bb0000', '#00bb00', '#e7b000', '#0000bb', '#ff55ff', '#55ffff', '#ffffff'] },
+  dark: { name: 'Sombre', bg: '#0b0d10', fg: '#d7dae0', cursor: '#d7dae0', ansi: ['#1e1e1e', '#e05561', '#8cc265', '#d18f52', '#4aa5f0', '#c162de',
+    '#42b3c2', '#d7dae0', '#666e7a', '#ff616e', '#a5e075', '#f0a45d', '#4dc4ff', '#de73ff', '#4cd1e0', '#ffffff'] },
+  basic: { name: 'Clair', bg: '#ffffff', fg: '#111111', cursor: '#7f7f7f', ansi: ANSI_APPLE },
+  homebrew: { name: 'Homebrew', bg: '#000000', fg: '#28fe14', cursor: '#38fe27', ansi: ANSI_APPLE },
+  ocean: { name: 'Ocean', bg: '#224fbc', fg: '#ffffff', cursor: '#7f7f7f', ansi: ANSI_APPLE },
+};
+const PALETTE = [];
+let TERM_FG, TERM_BG;
+function applyTheme() {
+  const t = THEMES[state.theme] || THEMES.grass;
+  PALETTE.splice(0, 16, ...t.ansi);
+  TERM_FG = t.fg; TERM_BG = t.bg;
+  const s = document.documentElement.style;
+  s.setProperty('--term-bg', t.bg); s.setProperty('--term-fg', t.fg); s.setProperty('--term-cursor', t.cursor);
+  TV.keys = []; $('#termlines').innerHTML = ''; // colours are baked into the rendered lines
+}
 function color256(n) {
   if (n < 16) return PALETTE[n];
   if (n < 232) { const v = [0, 95, 135, 175, 215, 255]; n -= 16; return `rgb(${v[Math.floor(n / 36)]},${v[Math.floor(n / 6) % 6]},${v[n % 6]})`; }
@@ -1505,6 +1538,7 @@ function lineHtml(raw, cursorX = -1, start = FRESH) {
 const plain = (raw) => raw.replace(TOKEN, (_, sgr, text) => text || '');
 
 const TV = { keys: [], lines: [], hist: null, full: true, fs: 0, lh: 0, cw: 0, info: null, ratio: 0 };
+applyTheme();
 function resetTerm() {
   Object.assign(TV, { keys: [], lines: [], hist: null, full: true, info: null });
   $('#termlines').innerHTML = '';
@@ -2014,6 +2048,7 @@ $('#tkb').addEventListener('pointerdown', (e) => {
   b.classList.add('down');
   try { b.setPointerCapture(e.pointerId); } catch {}
   if (x.act === 'system') return;
+  if (x.mod) { kbCommit(x); p.done = true; return; } // lit as soon as it's touched
   if (x.repeat) {
     kbCommit(x); p.done = true;
     const again = () => { kbCommit(x); p.timer = setTimeout(again, 70); };
@@ -2036,13 +2071,19 @@ $('#tkb').addEventListener('pointerup', () => {
   if (!p.done && p.key.act !== 'system') kbCommit(p.key, p.alts ? p.alts[p.sel] : undefined);
 });
 $('#tkb').addEventListener('pointercancel', kbRelease);
-// Opening the iOS keyboard needs a click: focus() from a pointer event is ignored on iOS.
-$('#tkb').addEventListener('click', (e) => {
+// No native gesture on the keys (double-tap zoom, callout, text selection): iOS would cancel the tap.
+// The shortcut row keeps its horizontal scroll.
+$('#tkb').addEventListener('touchstart', (e) => { if (!e.target.closest('.keyrow')) e.preventDefault(); }, { passive: false });
+// Opening the iOS keyboard needs a user gesture iOS accepts for focus(): touchend for touch, click for a mouse.
+const kbToSystem = (e) => {
   const b = e.target.closest('button[data-r]');
   if (!b || kbKeyOf(b)?.act !== 'system') return;
+  e.preventDefault();
   setKb(false);
   input.focus();
-});
+};
+$('#tkb').addEventListener('touchend', kbToSystem);
+$('#tkb').addEventListener('click', kbToSystem);
 window.addEventListener('blur', kbRelease);
 
 $('#win-menu').addEventListener('click', () => {
@@ -2057,6 +2098,13 @@ $('#win-menu').addEventListener('click', () => {
       <button class="row" data-a="kb-layout"><div class="main"><b>Disposition : ${kbPrefs().layout === 'azerty' ? 'AZERTY' : 'QWERTY'}</b><small>toucher pour ${kbPrefs().layout === 'azerty' ? 'QWERTY' : 'AZERTY'}</small></div></button>
       <button class="row" data-a="kb-alpha"><div class="main"><b>Transparence : ${{ glass: 'verre', clear: 'légère', solid: 'opaque' }[kbPrefs().alpha]}</b><small>verre, légère ou opaque</small></div></button>
       <button class="row" data-a="kb-overlay"><div class="main"><b>${kbPrefs().overlay ? 'Arrêter le TUI au bord du clavier' : 'Passer le TUI sous le clavier'}</b><small>${kbPrefs().overlay ? 'toutes les lignes restent visibles' : 'pleine hauteur, vue à travers le clavier'}</small></div></button>
+    </div>
+    <div class="sub">Thème du terminal</div>
+    <div class="chips" id="themes">${Object.entries(THEMES).map(([id, t]) => `<button type="button" data-theme="${id}" class="theme${(state.theme || 'grass') === id ? ' on' : ''}" style="--sw-bg:${t.bg};--sw-fg:${t.fg}">${esc(t.name)}</button>`).join('')}</div>
+    ${W.profile.ctx.length ? `<div class="sub">Raccourcis ${esc(W.profile.id === 'agent' ? 'des agents' : `de ${W.profile.id}`)}</div>
+    <div class="chips" id="ctxpick">${W.profile.ctx.map((x) => `<button type="button" data-l="${esc(x.l)}" class="${ctxShown(W.profile).includes(x.l) ? 'on' : ''}">${esc(x.l)}</button>`).join('')}</div>
+    <p class="hint">Touche un raccourci pour l'afficher ou le cacher au-dessus du clavier.</p>` : ''}
+    <div class="list menu" style="margin-top:16px">
       <button class="row" data-a="kill"><div class="main"><b style="color:var(--danger)">Fermer la fenêtre</b><small>tmux kill-window</small></div></button>
     </div>`, (el) => {
     $$('.row', el).forEach((r) => r.addEventListener('click', async () => {
@@ -2081,6 +2129,19 @@ $('#win-menu').addEventListener('click', () => {
         try { await api(srv, 'kill', { target: W.win }); W.fitted = false; back(); } catch (e) { toast(e.message); }
       }
     }));
+    $('#themes', el).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-theme]'); if (!b) return;
+      state.theme = b.dataset.theme; save(); applyTheme(); W.last = ''; tick();
+      $$('#themes button', el).forEach((x) => x.classList.toggle('on', x === b));
+    });
+    $('#ctxpick', el)?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-l]'); if (!b) return;
+      const shown = new Set(ctxShown(W.profile));
+      shown.has(b.dataset.l) ? shown.delete(b.dataset.l) : shown.add(b.dataset.l);
+      state.ctx = { ...state.ctx, [W.profile.id]: W.profile.ctx.map((x) => x.l).filter((l) => shown.has(l)) };
+      save(); b.classList.toggle('on', shown.has(b.dataset.l));
+      drawCtx(); kbRefit();
+    });
   });
 });
 
