@@ -215,9 +215,16 @@ details.miss-agents summary small { color: var(--muted); font: 500 12px var(--mo
   overflow: hidden; background: var(--bg-2); border: 1px solid var(--line);
   font: 12.5px/1.4 var(--mono); color: var(--text-2); }
 .btile[data-size="s"] .preview { display: none; }
-.btile[data-size="m"] .preview { max-height: 3.4em; }
+.btile[data-size="m"] .preview { max-height: 2.9em; }
 .btile[data-size="l"] .preview { max-height: 11em; }
 .btile[data-size="xl"] .preview { max-height: 20em; }
+@media (max-width: 540px) {
+  .btile { padding: 10px 12px; border-radius: 14px; }
+  .btile .preview { margin-top: 8px; padding: 7px 9px; }
+  .btile[data-size="m"] .preview { max-height: 2.6em; }
+  #v-windows .large-title h1 { font-size: 28px; }
+  #v-windows .large-title { margin-bottom: 4px; }
+}
 .btile .preview div { display: block; max-width: 100%; min-width: 0;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .btile .preview div:last-child { color: var(--text); }
@@ -2193,7 +2200,6 @@ $('#windows').addEventListener('click', (e) => {
     const b = boardOf();
     b.editing = !b.editing;
     save(); lastListHtml = ''; drawWindows(lastWindows);
-    toast(b.editing ? 'Mode édition' : 'Dashboard', true);
     return;
   }
   const sessNew = e.target.closest('[data-sess-new]');
