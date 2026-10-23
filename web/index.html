@@ -8,12 +8,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
+<meta name="tmux-pocket-ui" content="native-agents-1">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
 /* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
    "agent working"; amber means "waiting for you"; red is only for stop and errors. iOS conventions: large titles,
    translucent bars, bottom sheets, 44px touch targets. */
-:root {
+:root, html[data-appearance="dark"] {
   --bg: #07080b; --bg-2: #0c0e12; --surface: #13151b; --surface-2: #1a1d25; --surface-3: #232733;
   --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
   --text: #eceef3; --text-2: #b6bac6; --muted: #7c8191;
@@ -22,11 +23,23 @@
   --agent: #9d8cff; --agent-soft: rgba(157,140,255,.15);
   --term-bg: #13773d; --term-fg: #fff0a5; --term-cursor: #8c2800; --term-font: Menlo, "SF Mono", ui-monospace, monospace;
   --bar: rgba(12,14,18,.78); --blur: saturate(1.6) blur(18px);
+  --phone-bezel: #1a1c21;
   --r-s: 10px; --r: 14px; --r-l: 22px;
   --ui: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --app-h: 100dvh;
   color-scheme: dark;
+}
+html[data-appearance="light"] {
+  --bg: #eef1f6; --bg-2: #ffffff; --surface: #ffffff; --surface-2: #e8ebf2; --surface-3: #dde2eb;
+  --line: rgba(15,23,42,.08); --line-2: rgba(15,23,42,.14);
+  --text: #0f172a; --text-2: #334155; --muted: #64748b;
+  --accent: #0f9f6e; --accent-ink: #ffffff; --accent-soft: rgba(15,159,110,.14);
+  --wait: #c27803; --wait-soft: rgba(194,120,3,.12); --danger: #dc2626; --danger-soft: rgba(220,38,38,.12);
+  --agent: #6d28d9; --agent-soft: rgba(109,40,217,.12);
+  --bar: rgba(238,241,246,.86); --blur: saturate(1.4) blur(16px);
+  --phone-bezel: #c7ccd6;
+  color-scheme: light;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 var(--ui);
@@ -34,8 +47,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 body { overscroll-behavior: none; }
 /* No double-tap zoom anywhere: two quick taps (ctrl, then a key) would zoom the page and cancel the second tap. */
 html, body, #app { touch-action: manipulation; }
-/* The page itself never scrolls: on iOS the keyboard would scroll it away. The app follows the visual viewport instead. */
-html, body { position: fixed; inset: 0; overflow: hidden; }
+/* The page itself never scrolls: on iOS the keyboard would scroll it away. The app is pinned to the visual viewport. */
+html, body { position: fixed; inset: 0; overflow: hidden; width: 100%; height: 100%; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
 /* 16px floor on every field (not only .field / .inline): below it iOS zooms the page on focus
    and never zooms back out by itself. font:inherit alone is not enough — Safari's UA sheet
@@ -45,19 +58,20 @@ input, textarea, select { font: inherit; font-size: 16px; color: var(--text); }
 svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* ---------- phone frame on desktop (simulation) ---------- */
-/* Use top, never transform: a transformed ancestor makes iOS Safari zoom on focus
-   even when the field is 16px (it misreads the rendered size). */
-#stage { position: fixed; left: 0; right: 0; top: var(--app-top, 0px); height: var(--app-h);
-  display: flex; justify-content: center; align-items: center; gap: 48px; }
-#app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+/* Pin with top/left/height (never transform): a transformed ancestor makes iOS Safari zoom on focus. */
+#stage { position: fixed; left: var(--app-left, 0px); top: var(--app-top, 0px); width: var(--app-w, 100%); height: var(--app-h, 100dvh);
+  display: flex; justify-content: stretch; align-items: stretch; gap: 48px; }
+#app { position: relative; width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+#app > .view.on { flex: 1 1 0%; min-height: 0; max-height: 100%; width: 100%; }
 #aside { display: none; max-width: 300px; color: var(--muted); font-size: 14px; }
 #aside h1 { color: var(--text); font: 700 26px/1.1 var(--mono); letter-spacing: -.02em; margin: 0 0 12px; }
 #aside h1 span { color: var(--accent); }
 #aside code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; color: var(--text-2); }
 @media (min-width: 760px) and (min-height: 700px) {
   body { background: radial-gradient(900px 500px at 30% 0%, #10151a, var(--bg) 70%); }
-  #app { width: 393px; height: min(852px, calc(100vh - 40px)); border-radius: 46px; border: 10px solid #1a1c21;
-    box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04); }
+  #stage { justify-content: center; align-items: center; }
+  #app { width: 393px; height: min(852px, calc(100vh - 40px)); flex: none; border-radius: 46px; border: 10px solid var(--phone-bezel);
+    box-shadow: 0 40px 90px rgba(0,0,0,.25), 0 0 0 1px var(--line); }
   #aside { display: block; }
   :root { --safe-top: 30px; }
 }
@@ -72,6 +86,10 @@ header.bar .title { flex: 1; min-width: 0; padding: 0 4px; }
 header.bar .title b { display: flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; }
 header.bar .title b span { overflow: hidden; text-overflow: ellipsis; }
 header.bar .title small { display: block; color: var(--muted); font: 11.5px/1.3 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Title is the switcher: one tap to jump to any window without going back to the board. */
+header.bar button.title.win-switch { text-align: left; border-radius: 12px; padding: 4px 8px; margin: 0; }
+header.bar button.title.win-switch:active { background: var(--surface-2); }
+header.bar .title .chev-down { width: 14px; height: 14px; color: var(--muted); flex: none; margin-left: 2px; }
 header.bar.large { border-bottom-color: transparent; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .large-title { padding: 2px 18px 10px; flex: none; }
 .large-title h1 { margin: 0; font-size: 32px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -79,16 +97,22 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 .icon-btn { min-width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; color: var(--text-2); flex: none; }
 .icon-btn:active { background: var(--surface-2); }
 .icon-btn.accent { color: var(--accent); }
-.scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 14px 120px; }
+.scroll { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 14px 120px; }
 .sdot { width: 8px; height: 8px; border-radius: 4px; background: var(--muted); flex: none; }
 .sdot.working { background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 1.6s infinite; }
 .sdot.waiting { background: var(--wait); }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91,227,164,.5); } 70% { box-shadow: 0 0 0 7px rgba(91,227,164,0); } 100% { box-shadow: 0 0 0 0 rgba(91,227,164,0); } }
 
 /* ---------- lists & cards ---------- */
-.group-title { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 650;
-  text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 4px 8px; }
+.group-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 4px 8px; }
 .group-title small { font: 500 11.5px var(--mono); text-transform: none; letter-spacing: 0; }
+.group-title.sess { margin-top: 16px; }
+.group-title.sess:first-child { margin-top: 4px; }
+.group-title .sess-acts { display: flex; gap: 4px; }
+.group-title .sess-acts button { height: 28px; min-width: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text-2); font: 600 11px var(--ui); text-transform: none; letter-spacing: 0; }
+.group-title .sess-acts button:active { background: var(--accent); color: var(--accent-ink); }
 .list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; width: 100%; text-align: left; border-bottom: 1px solid var(--line); min-height: 52px; }
 .row:last-child { border-bottom: 0; }
@@ -128,10 +152,92 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
   background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-.fab { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 54px; padding: 0 22px 0 18px; border-radius: 27px;
-  background: var(--accent); color: var(--accent-ink); font-weight: 700; display: flex; align-items: center; gap: 8px; z-index: 5;
-  box-shadow: 0 10px 30px rgba(91,227,164,.25), 0 2px 6px rgba(0,0,0,.4); }
+/* ---------- dashboard board ---------- */
+.board-head { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 14px; min-width: 0; }
+.board-pulse { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 28px; }
+.board-pulse .pill { font-variant-numeric: tabular-nums; }
+.board-pulse .quiet { color: var(--muted); font: 12.5px/1.3 var(--ui); padding: 0 2px; }
+.board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 100px; min-width: 0; align-content: start; }
+.board[data-layout="list"] { display: flex; flex-direction: column; }
+.board .group-title.sess { grid-column: 1 / -1; margin-top: 8px; }
+.board .group-title.sess:first-child { margin-top: 0; }
+.board-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.board-tools .seg { margin-left: auto; }
+.board-tools .seg button { padding: 6px 12px; font-size: 12px; }
+.board-help-link { color: var(--muted); font: 600 12.5px var(--ui); padding: 6px 2px; }
+.board-help-link:active { color: var(--accent); }
+details.miss-agents { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
+details.miss-agents summary { color: var(--muted); padding: 10px 4px; cursor: pointer; font: 600 13px var(--ui); list-style: none; display: flex; align-items: center; gap: 8px; }
+details.miss-agents summary::-webkit-details-marker { display: none; }
+details.miss-agents summary::before { content: "▸"; color: var(--accent); font-size: 11px; }
+details.miss-agents[open] summary::before { content: "▾"; }
+details.miss-agents summary small { color: var(--muted); font: 500 12px var(--mono); margin-left: auto; }
+/* Swipe row: delete action sits under the tile; tile slides left. */
+.brow { position: relative; border-radius: 16px; overflow: hidden; min-width: 0; background: var(--danger); }
+.board:not([data-layout="list"]) .brow { min-width: 0; }
+.board:not([data-layout="list"]) .brow[data-span="2"] { grid-column: 1 / -1; }
+.board:not([data-layout="list"]) .btile .main b { font-size: 14.5px; }
+.board:not([data-layout="list"]) .btile .preview { font-size: 11px; }
+.bdel { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; border: 0; background: transparent; color: #fff;
+  font: 700 13px var(--ui); display: grid; place-items: center; letter-spacing: .01em; }
+.btile { position: relative; display: block; width: 100%; max-width: 100%; min-width: 0; text-align: left; border-radius: 16px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--line); overflow: hidden;
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), background .12s ease; touch-action: pan-y;
+  user-select: none; -webkit-user-select: none;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--tile-c, transparent) 55%, transparent); }
+.btile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tile-c, var(--line-2)); }
+.brow.open .btile, .btile.snap { transition: transform .2s cubic-bezier(.2,.8,.2,1); }
+.btile.pressing { background: var(--surface-2); }
+.btile.swiping { touch-action: none; transition: none; }
+.btile .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.btile .swatch { width: 28px; height: 28px; border-radius: 8px; flex: none; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--tile-c, var(--muted)) 22%, var(--surface-3));
+  color: var(--tile-c, var(--text-2)); font: 700 13px var(--mono); }
+.btile .main { flex: 1; min-width: 0; overflow: hidden; }
+.btile .main b { display: block; font-size: 16px; font-weight: 650; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btile .main small { display: block; color: var(--muted); font: 12px/1.35 var(--mono); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Preview stays inside the tile: wrap long lines, clip vertically by size — never spill out. */
+.btile .preview { margin-top: 10px; padding: 8px 10px; border-radius: 10px; min-width: 0; max-width: 100%;
+  overflow: hidden; background: var(--bg-2); border: 1px solid var(--line);
+  font: 12px/1.4 var(--mono); color: var(--text-2); }
+.btile[data-size="s"] .preview { display: none; }
+.btile[data-size="m"] .preview { max-height: 4.6em; }
+.btile[data-size="l"] .preview { max-height: 12.2em; }
+.btile[data-size="xl"] .preview { max-height: 22.4em; }
+.btile .preview div { display: block; max-width: 100%; min-width: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.btile .preview div:last-child { color: var(--text); }
+.swatch-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch-pick button { width: 36px; height: 36px; border-radius: 11px; border: 2px solid transparent; background: var(--sw); }
+.swatch-pick button.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--sw); }
+.size-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.size-pick button { flex: 1; min-width: 64px; padding: 10px 8px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); font: 600 12.5px var(--ui); text-align: center; }
+.size-pick button small { display: block; color: var(--muted); font: 500 10.5px var(--mono); margin-top: 2px; }
+.size-pick button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.size-pick button.on small { color: var(--accent-ink); opacity: .8; }
+.large-title { cursor: default; }
+.large-title.pressing h1 { color: var(--accent); }
+
+/* FAB: hidden until near the end of the board; + only, label when selected / near end. */
+.fab { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 56px;
+  width: max-content; max-width: 56px; padding: 0 16px; box-sizing: border-box;
+  border-radius: 28px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 0; z-index: 5; overflow: hidden;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 28%, transparent), 0 2px 6px rgba(0,0,0,.18);
+  transition: max-width .22s cubic-bezier(.2,.8,.2,1), padding .22s cubic-bezier(.2,.8,.2,1), gap .18s ease,
+    opacity .2s ease, transform .2s cubic-bezier(.2,.8,.2,1); }
+.fab.hide { opacity: 0; pointer-events: none; transform: scale(.88) translateY(8px); }
+.fab .fab-label { max-width: 0; opacity: 0; white-space: nowrap; overflow: hidden; margin: 0;
+  transition: max-width .22s cubic-bezier(.2,.8,.2,1), opacity .14s ease; font-size: 15px; letter-spacing: -.01em; }
+.fab.wide, .fab:focus-visible, .fab:active {
+  max-width: 16em; padding: 0 18px 0 14px; gap: 8px; justify-content: flex-start; }
+.fab.wide .fab-label, .fab:focus-visible .fab-label, .fab:active .fab-label { max-width: 12em; opacity: 1; }
+.fab .i { width: 24px; height: 24px; flex: none; }
 .fab:active { transform: scale(.97); }
+.fab.hide:active { transform: scale(.88) translateY(8px); }
 
 /* ---------- forms ---------- */
 .field { display: block; padding: 11px 14px; border-bottom: 1px solid var(--line); }
@@ -159,11 +265,12 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
   border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); user-select: all; }
 
 /* ---------- sheet ---------- */
-.sheet-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; z-index: 20; }
+.sheet-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: flex-end; z-index: 20; }
+html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .sheet-wrap.on { display: flex; animation: fade .18s ease-out; }
 @keyframes fade { from { background: rgba(0,0,0,0); } }
-.sheet { width: 100%; background: rgba(22,24,31,.94); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-l) var(--r-l) 0 0;
+.sheet { width: 100%; background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-l) var(--r-l) 0 0; color: var(--text);
   padding: 10px 16px calc(env(safe-area-inset-bottom) + 18px); max-height: 86%; overflow-y: auto; overscroll-behavior: contain; animation: up .24s cubic-bezier(.2,.8,.2,1); }
 @keyframes up { from { transform: translateY(60px); opacity: .4; } }
 .grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 12px; }
@@ -176,7 +283,17 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
   background: var(--surface-3); font: 700 16px var(--mono); color: var(--text-2); }
 .preset.agent .glyph { background: var(--agent-soft); color: var(--agent); }
 .preset.pi .glyph { background: var(--accent-soft); color: var(--accent); font-size: 19px; }
+.preset.miss { opacity: .92; border-style: dashed; }
+.preset.miss .glyph { background: var(--surface); color: var(--muted); }
 .preset small { display: block; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.agent-install { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
+.agent-install p { margin: 0 0 8px; color: var(--text-2); font-size: 13.5px; line-height: 1.4; }
+.agent-install code, .agent-install .cmd { display: block; font: 12px/1.45 var(--mono); color: var(--text); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all; user-select: all; }
+.agent-install .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.agent-install .acts a, .agent-install .acts button { flex: 1; min-width: 120px; min-height: 44px; border-radius: 12px; display: grid; place-items: center;
+  font: 650 14px var(--ui); border: 1px solid var(--line); background: var(--surface-3); color: var(--text); text-decoration: none; }
+.agent-install .acts button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chips button { padding: 7px 13px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font: 13.5px var(--mono); }
 .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
@@ -193,7 +310,11 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 /* ---------- window view ---------- */
 #v-window header .seg { flex: none; }
 #v-window header .seg button { padding: 6px 11px; font-size: 12.5px; }
-#termwrap { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
+/* Fill the stage: flex-basis 0% so Safari actually grows chatbox/termwrap (dock stuck under
+   the first bubble left a huge gap above the iOS keyboard + Safari URL pill). */
+#v-window { --gutter: 12px; width: 100%; min-height: 0; }
+#v-window.on { flex: 1 1 0%; max-height: 100%; }
+#termwrap { flex: 1 1 0%; min-height: 0; position: relative; background: var(--term-bg); }
 #termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; touch-action: pan-x pan-y; }
 #termlines { padding: 6px 6px 10px; min-width: max-content; color: var(--term-fg); font-family: Menlo, "SF Mono", ui-monospace, monospace; white-space: pre; }
 #termlines > div { height: var(--lh); line-height: var(--lh); }
@@ -202,7 +323,8 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
   background: rgba(35,39,51,.92); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--line-2);
   color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 [hidden] { display: none !important; }
-#chatbox { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px; display: none; background: var(--bg); }
+#chatbox { flex: 1 1 0%; min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 14px var(--gutter); display: none; flex-direction: column; background: var(--bg); }
 .msg { max-width: 86%; margin: 0 0 10px; padding: 9px 13px; border-radius: 19px; white-space: pre-wrap; word-break: break-word; font-size: 15.5px; line-height: 1.42; }
 .msg.user { margin-left: auto; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 6px; font-weight: 500; }
 .msg.agent { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 6px;
@@ -210,13 +332,28 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .msg .tool { color: var(--accent); }
 .msg .who { display: block; font-family: var(--ui); font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 
-/* dock: shortcuts, keys and composer — one translucent block, foldable to give the terminal all the height */
-.dock { flex: none; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); }
+/* dock: suggestions + shortcuts stay visible; keybar folds away. Chat hides the keybar entirely. */
+.dock { flex: none; margin-top: auto; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); z-index: 5; }
+/* While typing, pin the dock to the visual viewport bottom (above keyboard + Safari accessory). */
+#v-window.typing .dock { position: fixed; left: var(--app-left, 0px); width: var(--app-w, 100%);
+  bottom: var(--kb-inset, 0px); margin-top: 0; }
+#v-window.typing #chatbox { padding-bottom: calc(var(--dock-h, 110px) + 12px); }
 .dock-handle { display: flex; justify-content: center; width: 100%; height: 14px; padding-top: 5px; }
 .dock-handle i { width: 34px; height: 4px; border-radius: 2px; background: var(--line-2); }
 .dock.folded .keys { display: none; }
 .keys { padding: 0 0 2px; }
-.keyrow { display: flex; gap: 6px; padding: 3px 10px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
+.suggest { display: flex; gap: 6px; padding: 6px var(--gutter) 2px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+.suggest::-webkit-scrollbar { display: none; }
+.suggest[hidden] { display: none !important; }
+.suggest button { flex: none; height: 34px; padding: 0 14px; border-radius: 99px; border: 1px solid var(--wait);
+  background: var(--wait-soft); color: var(--wait); font: 650 13.5px var(--ui); }
+.suggest button:active { background: var(--wait); color: var(--bg); }
+.suggest button.sec { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+.switcher .row.on { background: var(--accent-soft); }
+.switcher .row .glyph { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none;
+  background: var(--surface-3); font: 700 13px var(--mono); color: var(--text-2); }
+.switcher .row.on .glyph { background: var(--accent-soft); color: var(--accent); }
+.keyrow { display: flex; gap: 6px; padding: 3px var(--gutter, 12px); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
 .keyrow::-webkit-scrollbar { display: none; }
 .keyrow:empty { display: none; }
 .keyrow button { flex: none; min-width: 42px; height: 38px; padding: 0 11px; border-radius: 11px; background: var(--surface-3);
@@ -248,7 +385,7 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .keygrid button { height: 44px; border-radius: 11px; background: var(--surface-3); border: 1px solid var(--line); font: 600 13.5px var(--mono); }
 .keygrid button:active { background: var(--accent); color: var(--accent-ink); }
 .keygrid button.mod.on { background: var(--accent); color: var(--accent-ink); }
-.composer { display: flex; align-items: flex-end; gap: 8px; padding: 6px 10px calc(env(safe-area-inset-bottom) + 8px); }
+.composer { display: flex; align-items: flex-end; gap: 8px; padding: 6px var(--gutter, 12px) calc(env(safe-area-inset-bottom) + 8px); }
 .composer textarea { flex: 1; min-width: 0; resize: none; height: 44px; max-height: 132px; padding: 11px 16px; border-radius: 22px;
   border: 1px solid var(--line-2); background: var(--surface-2); outline: none; font-size: 16px; line-height: 20px; }
 .composer textarea:focus { border-color: rgba(91,227,164,.5); }
@@ -260,7 +397,18 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .composer .send.stop .ic-stop { display: block; }
 .composer .kb-show { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; flex: none; color: var(--text-2); }
 .composer .kb-show:active { background: var(--surface-3); }
+/* Chat: iOS keyboard + suggestions only — no terminal keybar, no fold handle, no dead safe-area gap.
+   Same --gutter as #chatbox so bubbles, chips and the composer share one left/right edge. */
 #v-window[data-mode="chat"] .kb-show { display: none; }
+#v-window[data-mode="chat"] .dock-handle { display: none; }
+#v-window[data-mode="chat"] .keys { display: none; }
+#v-window[data-mode="chat"] .ctxstrip .ctx-toggle { display: none; }
+#v-window[data-mode="chat"] .ctxstrip { padding: 4px 0 0; }
+#v-window[data-mode="chat"] .ctxstrip .keyrow.ctx { display: flex; padding-left: var(--gutter); padding-right: var(--gutter); }
+#v-window[data-mode="chat"] .ctxstrip.folded .keyrow.ctx { display: flex; }
+#v-window[data-mode="chat"] .composer { padding-bottom: 8px; }
+#v-window[data-mode="chat"].typing .composer { padding-bottom: 6px; }
+/* Keep TUI/Chat toggle visible while typing — hiding it reflowed the title and felt “désaligné”. */
 #v-window.kb-on .dock { display: none; }
 
 /* terminal keyboard: drawn inside the terminal, in its colours and font, and see-through so the TUI stays visible
@@ -315,8 +463,10 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .pmsg.assistant { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; border-bottom-left-radius: 6px;
   padding: 11px 13px; font-size: 15.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .pmsg code { font-family: var(--mono); font-size: 13px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+/* Tool / bash outputs: horizontal pan must win over #chatbox's vertical scroll, and survive redraws. */
 .pmsg pre { font-family: var(--mono); font-size: 12px; background: var(--bg-2); border: 1px solid var(--line); padding: 9px; border-radius: 10px;
-  overflow-x: auto; white-space: pre; margin: 6px 0; color: var(--text-2); }
+  overflow-x: auto; overflow-y: hidden; white-space: pre; margin: 6px 0; color: var(--text-2); max-width: 100%;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x; }
 .pmsg details { margin: 4px 0 0; }
 .pmsg details summary { cursor: pointer; color: var(--muted); font: 600 12px var(--mono); list-style: none; padding: 4px 0; }
 .pmsg details summary::-webkit-details-marker { display: none; }
@@ -331,13 +481,17 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
 .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 50% { opacity: .25; } }
 
-.status { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top, env(safe-area-inset-top)) + 58px);
-  background: rgba(60,20,24,.92); border: 1px solid rgba(255,107,107,.35); color: #ffd6d6; font-size: 13.5px; font-weight: 550;
-  padding: 8px 14px; border-radius: 99px; z-index: 30; max-width: 90%; display: none; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+/* Toasts sit above the FAB — never over the large title. */
+.status { position: absolute; left: 50%; transform: translateX(-50%);
+  top: auto; bottom: calc(env(safe-area-inset-bottom) + 78px);
+  background: rgba(60,20,24,.94); border: 1px solid rgba(255,107,107,.35); color: #ffd6d6; font-size: 13.5px; font-weight: 550;
+  padding: 8px 14px; border-radius: 99px; z-index: 30; max-width: min(90%, 340px); display: none; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  box-shadow: 0 8px 24px rgba(0,0,0,.35); text-align: center; }
 .status.on { display: block; animation: drop .2s ease-out; }
-.status.ok { background: rgba(10,50,32,.92); border-color: rgba(91,227,164,.35); color: #c8ffe3; }
-@keyframes drop { from { transform: translate(-50%, -8px); opacity: 0; } }
+.status.ok { background: rgba(10,50,32,.94); border-color: rgba(91,227,164,.35); color: #c8ffe3; }
+html[data-appearance="light"] .status { background: rgba(127,29,29,.94); color: #fff; }
+html[data-appearance="light"] .status.ok { background: rgba(6,78,59,.94); color: #ecfdf5; border-color: rgba(15,159,110,.45); }
+@keyframes drop { from { transform: translate(-50%, 8px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -360,12 +514,16 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
   <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><path d="M8 7h.01M8 12h.01M8 17h.01M16 7h.01M16 12h.01M16 17h.01" stroke-width="3"/></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 7 7 0 1 0 20 14.5z"/></symbol>
 </svg>
 <div id="stage">
   <aside id="aside">
     <h1>tmux<span>·</span>pocket</h1>
-    <p>Tes sessions tmux et tes agents de code (pi, claude, codex…) dans ta poche : aperçu en direct de chaque fenêtre, TUI rendu fidèlement avec un défilement natif, chat pi natif, WeeChat au doigt.</p>
-    <p><b>Démo</b> : fonctionne sans serveur. Tape <code>pi</code> ou <code>tmux ls</code> dans le shell.</p>
+    <p>Tes sessions tmux et tes agents de code (pi, Claude, Codex, Gemini, OpenCode…) dans ta poche : aperçu en direct, TUI fidèle, chat natif (commandes, réflexion, outils) et login CLI depuis l’app.</p>
+    <p><b>Démo</b> : fonctionne sans serveur. Tape <code>pi</code>, <code>claude</code> ou <code>tmux ls</code> dans le shell.</p>
     <p>Serveur réel : <code>cd bridge && npm i && npm start</code>, puis <code>http://127.0.0.1:8022</code>.</p>
   </aside>
   <div id="app">
@@ -374,6 +532,7 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
     <section class="view" id="v-servers">
       <header class="bar large">
         <div class="title"></div>
+        <button class="icon-btn appearance-toggle" aria-label="Thème clair ou sombre" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
         <button class="icon-btn accent" id="add-server" aria-label="Ajouter un serveur"><svg class="i"><use href="#i-plus"/></svg></button>
       </header>
       <div class="scroll">
@@ -408,7 +567,7 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
         <div class="list">
           <label class="field"><span>Session par défaut</span><input name="session" placeholder="main" autocapitalize="off"></label>
           <label class="field"><span>Dossier de départ des nouvelles fenêtres</span><input name="cwd" placeholder="~/code" autocapitalize="off"></label>
-          <label class="field"><span>Commandes rapides (une par ligne : nom = commande)</span><textarea name="presets" spellcheck="false"></textarea></label>
+          <label class="field"><span>Commandes perso (une par ligne : nom = commande). Les agents officiels sont détectés sur le serveur.</span><textarea name="presets" spellcheck="false"></textarea></label>
           <label class="field check"><span>Adapter les fenêtres à l'iPhone</span><input name="fit" type="checkbox"></label>
         </div>
         <details class="adv">
@@ -432,25 +591,29 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
       </form>
     </section>
 
-    <!-- Windows -->
+    <!-- Dashboard: live board of tmux windows -->
     <section class="view" id="v-windows">
       <header class="bar large">
         <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
         <div class="title"></div>
+        <button class="icon-btn appearance-toggle" aria-label="Thème clair ou sombre" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
         <button class="icon-btn" id="edit-server" aria-label="Réglages du serveur"><svg class="i"><use href="#i-gear"/></svg></button>
       </header>
       <div class="scroll">
-        <div class="large-title"><h1 id="srv-name"></h1><p id="srv-sub"></p></div>
+        <div class="large-title" id="srv-title"><h1 id="srv-name"></h1><p id="srv-sub"></p></div>
         <div id="windows"></div>
       </div>
-      <button class="fab" id="new-window"><svg class="i"><use href="#i-plus"/></svg>Nouvelle fenêtre</button>
+      <button class="fab hide" id="new-window" type="button" aria-label="Nouvelle fenêtre"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span class="fab-label">Nouvelle fenêtre</span></button>
     </section>
 
     <!-- Window -->
     <section class="view" id="v-window">
       <header class="bar">
         <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
-        <div class="title"><b><i class="sdot" id="win-dot"></i><span id="win-name"></span></b><small id="win-sub"></small></div>
+        <button type="button" class="title win-switch" id="win-switch" aria-haspopup="dialog" aria-label="Changer de fenêtre">
+          <b><i class="sdot" id="win-dot"></i><span id="win-name"></span><svg class="i chev-down" aria-hidden="true"><use href="#i-fold"/></svg></b>
+          <small id="win-sub"></small>
+        </button>
         <div class="seg" id="mode-seg"><button data-mode="term">TUI</button><button data-mode="chat">Chat</button></div>
         <button class="icon-btn" id="win-menu" aria-label="Menu de la fenêtre"><svg class="i"><use href="#i-more"/></svg></button>
       </header>
@@ -473,13 +636,14 @@ details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; f
       <div id="chatbox"></div>
       <div class="dock" id="dock">
         <button class="dock-handle" id="dock-handle" type="button" aria-label="Afficher ou masquer les touches"><i></i></button>
+        <div class="suggest" id="suggest" hidden></div>
+        <div class="ctxstrip" id="ctxstrip" hidden>
+          <button type="button" class="ctx-toggle" id="ctx-toggle" aria-expanded="true" aria-controls="ctxbar" aria-label="Raccourcis">
+            <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
+          </button>
+          <div class="keyrow ctx" id="ctxbar"></div>
+        </div>
         <div class="keys">
-          <div class="ctxstrip" id="ctxstrip" hidden>
-            <button type="button" class="ctx-toggle" id="ctx-toggle" aria-expanded="true" aria-controls="ctxbar" aria-label="Raccourcis">
-              <svg class="i"><use href="#i-fold"/></svg><span class="lbl">raccourcis</span>
-            </button>
-            <div class="keyrow ctx" id="ctxbar"></div>
-          </div>
           <div class="keyrow" id="keybar"></div>
         </div>
         <form class="composer" id="composer">
@@ -510,7 +674,51 @@ const SECRET_FIELDS = ['password', 'privateKey', 'passphrase', 'token'];
 const stripSecrets = (srv) => { const c = { ...srv }; SECRET_FIELDS.forEach((k) => delete c[k]); return c; };
 const passwords = new Map(); // server id -> SSH password, memory only
 const STORE_KEY = 'tmuxpocket.v1';
-const DEFAULT_PRESETS = 'pi = pi\nClaude = claude\nCodex = codex\nAider = aider\nGemini = gemini\nopencode = opencode\nhtop = htop\nShell =';
+// Official coding agents — recommendation order. Only installed ones are one-tap launchable;
+// missing ones show affiliated docs + the official install line (runnable from the pocket).
+const AGENT_CATALOG = [
+  { id: 'codeaf', bin: 'codeaf', label: 'CodeAF', glyph: '◈', cls: 'agent', cmd: 'codeaf',
+    install: 'curl -fsSL https://agentfield.ai/get/codeaf | bash',
+    docs: 'https://agentfield.ai/docs/codeaf',
+    login: 'codeaf', loginHint: 'CodeAF demande le modèle / la clé au premier lancement',
+    blurb: 'Usine d’agents dans le terminal (AgentField).' },
+  { id: 'pi', bin: 'pi', label: 'pi', glyph: 'π', cls: 'pi', cmd: 'pi',
+    install: 'curl -fsSL https://pi.dev/install.sh | sh',
+    docs: 'https://pi.dev/docs/latest/quickstart',
+    login: 'pi', loginHint: 'pi configure le modèle au premier lancement (/model)',
+    blurb: 'Agent de code open source (pi.dev).' },
+  { id: 'claude', bin: 'claude', label: 'Claude', glyph: '✻', cls: 'agent', cmd: 'claude',
+    install: 'curl -fsSL https://claude.ai/install.sh | bash',
+    docs: 'https://docs.anthropic.com/en/docs/claude-code',
+    login: 'claude auth login', loginHint: 'Connexion Anthropic (Claude Code)',
+    blurb: 'Claude Code — installateur officiel Anthropic.' },
+  { id: 'codex', bin: 'codex', label: 'Codex', glyph: '◎', cls: 'agent', cmd: 'codex',
+    install: 'npm install -g @openai/codex',
+    docs: 'https://github.com/openai/codex',
+    login: 'codex login', loginHint: 'Connexion OpenAI (Codex CLI)',
+    blurb: 'Codex CLI (OpenAI).' },
+  { id: 'gemini', bin: 'gemini', label: 'Gemini', glyph: '✦', cls: 'agent', cmd: 'gemini',
+    install: 'npm install -g @google/gemini-cli',
+    docs: 'https://github.com/google-gemini/gemini-cli',
+    login: 'gemini', loginHint: 'Au premier lancement, Gemini ouvre /auth (Google)',
+    blurb: 'Gemini CLI (Google).' },
+  { id: 'opencode', bin: 'opencode', label: 'OpenCode', glyph: '◆', cls: 'agent', cmd: 'opencode',
+    install: 'curl -fsSL https://opencode.ai/v2/install | bash',
+    docs: 'https://opencode.ai/',
+    login: 'opencode auth login', loginHint: 'Connexion OpenCode (fournisseur)',
+    blurb: 'OpenCode — agent open source.' },
+  { id: 'aider', bin: 'aider', label: 'Aider', glyph: '♦', cls: 'agent', cmd: 'aider',
+    install: 'python -m pip install aider-install && aider-install',
+    docs: 'https://aider.chat/docs/install.html',
+    login: null, loginHint: 'Aider utilise OPENAI_API_KEY / ANTHROPIC_API_KEY dans l’environnement',
+    blurb: 'Aider — pair programming dans le terminal.' },
+];
+const TOOL_PRESETS = [
+  { label: 'htop', cmd: 'htop', bin: 'htop', glyph: '▤', cls: '' },
+  { label: 'Shell', cmd: '', bin: null, glyph: '$', cls: '' },
+];
+const DEFAULT_PRESETS = 'htop = htop\nShell =';
+let lastAgents = {};
 // Served by the bridge itself (localhost or your own domain): talk to the same origin.
 const defaultBridge = () => (location.protocol.startsWith('http') && !location.hostname.endsWith('github.io')) ? location.origin : 'http://127.0.0.1:8022';
 function defaults() {
@@ -536,7 +744,19 @@ let state = load();
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...state, servers: state.servers.map(stripSecrets) })); } catch {}
 }
+function applyAppearance() {
+  const light = state.appearance === 'light';
+  document.documentElement.dataset.appearance = light ? 'light' : 'dark';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = light ? '#eef1f6' : '#07080b';
+  $$('.appearance-toggle').forEach((btn) => {
+    btn.setAttribute('aria-pressed', light ? 'true' : 'false');
+    btn.innerHTML = `<svg class="i"><use href="#${light ? 'i-moon' : 'i-sun'}"/></svg>`;
+    btn.setAttribute('aria-label', light ? 'Passer en thème sombre' : 'Passer en thème clair');
+  });
+}
 save();
+applyAppearance();
 
 const parsePresets = (txt) => String(txt ?? DEFAULT_PRESETS).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
   const i = l.indexOf('=');
@@ -546,7 +766,7 @@ const parsePresets = (txt) => String(txt ?? DEFAULT_PRESETS).split('\n').map((l)
 });
 
 // Agents we know how to "chat" with. pane_current_command can be "node" for JS agents, so check the name too.
-const AGENT_RE = /^(pi|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/i;
+const AGENT_RE = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush|qwen|cursor-agent|copilot)\b/i;
 const isAgent = (w) => AGENT_RE.test(w.command || '') || AGENT_RE.test(w.name || '');
 
 // =====================================================================
@@ -561,7 +781,7 @@ function askSecret(id, title, hint) {
       $('#secret', el).addEventListener('submit', (e) => {
         e.preventDefault(); closeSheet(); asking.delete(id); resolve(e.target.t.value);
       });
-      $('#secret input', el).focus();
+      $('#secret input', el).focus({ preventScroll: true });
     });
   }));
   return asking.get(id);
@@ -653,16 +873,38 @@ const Sim = (() => {
   }
   const shellPrompt = () => `${fg(76)}thomas@demo${R}:${fg(39)}~/code${R}$ `;
 
+  const presentBins = new Set(['codeaf', 'pi', 'claude', 'codex', 'gemini', 'opencode', 'htop', 'bash', 'weechat']);
   mk('main', 'shell', 'shell', { lines: [shellPrompt() + 'git pull', 'Already up to date.', shellPrompt() + 'ls', `${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`] });
+  mk('main', 'codeaf', 'agent', { style: 'pi', cmd: 'codeaf', items: [
+    { role: 'user', text: 'Prépare un /senior-dev sur tmux-pocket' },
+    { role: 'agent', text: 'Machine prête : VM headless avec Docker, Python 3.13 et Node 24. Que veux-tu construire ?',
+      thinking: 'Inspecter le toolchain et résumer sans dump TUI.',
+      tools: [{ name: 'bash', args: '{"command":"uname -a && df -h /"}', output: 'Linux demo 6.12 · 97 GiB free', done: true }] },
+  ] });
   mk('main', 'pi', 'agent', { style: 'pi', items: [
     { role: 'user', text: 'Ajoute une commande pour lister les fenêtres tmux' },
     { role: 'tool', text: 'read src/tmux.ts' },
     { role: 'agent', text: "C'est fait : `listWindows()` appelle `tmux list-windows -a -F …` et renvoie session, index, nom et commande." },
   ] });
-  mk('main', 'claude', 'agent', { style: 'claude', items: [
+  mk('main', 'claude', 'agent', { style: 'claude', cmd: 'claude', items: [
     { role: 'user', text: 'Résume les changements du jour' },
     { role: 'tool', text: 'Bash(git log --since=today --oneline)', sub: '5 commits' },
-    { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), capture des écrans avec couleurs, vue chat pour les agents, et création de fenêtre en deux taps.' },
+    { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), chat natif Claude/Codex/Gemini/OpenCode, et login CLI depuis l’app.' },
+  ] });
+  mk('main', 'codex', 'agent', { style: 'pi', cmd: 'codex', items: [
+    { role: 'user', text: 'Explique le bridge tmux-pocket' },
+    { role: 'agent', text: 'Le bridge expose une API HTTP qui pilote tmux via SSH : list, capture, send, et lecture des transcripts agents.',
+      thinking: 'Rester court, pointer vers ops.*',
+      tools: [{ name: 'shell', args: '{"command":"ls bridge"}', output: 'agent-chat.js  server.js  test.js', done: true }] },
+  ] });
+  mk('main', 'gemini', 'agent', { style: 'pi', cmd: 'gemini', items: [
+    { role: 'user', text: 'Quels agents ont un chat natif ?' },
+    { role: 'agent', text: 'pi, CodeAF, Claude Code, Codex, Gemini CLI et OpenCode partagent le même contrat messages (texte, réflexion, outils).' },
+  ] });
+  mk('main', 'opencode', 'agent', { style: 'pi', cmd: 'opencode', items: [
+    { role: 'user', text: 'Ouvre une session OpenCode' },
+    { role: 'agent', text: 'Session prête. Le chat lit storage_v2 / SQLite côté bridge.',
+      tools: [{ name: 'read', args: '{"path":"bridge/agent-chat.js"}', output: 'module.exports = { readChat, AUTH, KINDS }', done: true }] },
   ] });
   mk('main', 'htop', 'htop');
   mk('infra', 'api-logs', 'logs');
@@ -814,7 +1056,7 @@ const Sim = (() => {
   }
 
   // ---------- input ----------
-  const AGENTS = /^(pi|claude|codex|aider|gemini|opencode|amp|goose|crush)\b/;
+  const AGENTS = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush)\b/;
   function runShell(w, cmd) {
     w.lines.push(shellPrompt() + cmd);
     const c = cmd.trim();
@@ -830,8 +1072,31 @@ const Sim = (() => {
       return;
     }
     if (c === 'htop' || c === 'top') { w.kind = 'htop'; w.name = w.name === 'shell' ? 'htop' : w.name; return; }
+    const installMark = {
+      codeaf: 'agentfield.ai/get/codeaf', pi: 'pi.dev/install', claude: 'claude.ai/install',
+      codex: '@openai/codex', gemini: '@google/gemini-cli', opencode: 'opencode.ai', aider: 'aider-install',
+    };
+    for (const a of AGENT_CATALOG) {
+      const mark = installMark[a.id];
+      if (mark && c.includes(mark)) {
+        presentBins.add(a.bin);
+        w.lines.push(`${fg(76)}✓${R} ${a.label} installé (simulation) → ${a.bin}`);
+        w.lines.push(`${D}Relance « Nouvelle fenêtre » pour le voir dans Disponibles.${R}`);
+        return;
+      }
+    }
+    // Simulated CLI login for catalog agents (e.g. "claude auth login").
+    for (const a of AGENT_CATALOG) {
+      if (a.login && (c === a.login || c.startsWith(`${a.login} `))) {
+        presentBins.add(a.bin);
+        w.lines.push(`${fg(76)}✓${R} ${a.label} : login simulé`);
+        w.lines.push(`${D}${a.loginHint || 'Compte prêt.'}${R}`);
+        return;
+      }
+    }
     const m = c.match(AGENTS);
     if (m) {
+      presentBins.add(m[1]);
       Object.assign(w, { kind: 'agent', style: m[1] === 'claude' ? 'claude' : 'pi', cmd: m[1], items: [], input: '' });
       return;
     }
@@ -927,22 +1192,60 @@ const Sim = (() => {
       return { session, window: w.index };
     },
     kill: ({ target }) => { wins.splice(wins.indexOf(find(target)), 1); return { ok: true }; },
-    // Same shape as the bridge's pi op (pi's session file). The reply being streamed isn't in it yet.
-    pi: ({ target }) => {
-      const w = find(target);
-      if (w.kind !== 'agent' || w.style !== 'pi') return { found: false };
+    rename: ({ target, name }) => { find(target).name = String(name || '').trim() || 'shell'; return { ok: true, name: find(target).name }; },
+    renameSession: ({ session, name }) => {
+      const n = String(name || '').trim();
+      if (!n || n.includes(':') || n.includes('.')) throw new Error('invalid session name');
+      wins.filter((w) => w.session === session).forEach((w) => { w.session = n; });
+      return { ok: true, session: n };
+    },
+    // Same shape as the bridge's pi / codeaf / agent-chat ops. The reply being streamed isn't in the file yet.
+    _nativeChat(w) {
+      if (w.kind !== 'agent') return { found: false };
       const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
-      const messages = items.map((it, i) => it.role === 'user' ? { id: `m${i}`, role: 'user', text: it.text }
-        : it.role === 'tool' ? { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
-          args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] }
-        : { id: `m${i}`, role: 'assistant', text: it.text, tools: [] });
+      const messages = items.map((it, i) => {
+        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text };
+        if (it.role === 'tool') {
+          return { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
+            args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] };
+        }
+        const tools = (it.tools || []).map((t, j) => ({ id: `t${i}_${j}`, name: t.name, args: t.args || '', output: t.output || '', done: t.done !== false, isError: !!t.isError }));
+        return { id: `m${i}`, role: 'assistant', text: it.text, thinking: it.thinking || '', tools };
+      });
       return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
     },
+    _chatKind(kind, target) {
+      const w = find(target);
+      if (w.kind !== 'agent') return { found: false };
+      const cmd = (w.cmd || w.style || '').toLowerCase();
+      if (kind === 'pi') {
+        if (w.style !== 'pi' || ['codeaf', 'codex', 'gemini', 'opencode'].includes(cmd)) return { found: false };
+        return ops._nativeChat(w);
+      }
+      if (cmd !== kind && !(kind === 'claude' && w.style === 'claude' && !w.cmd)) return { found: false };
+      return ops._nativeChat(w);
+    },
+    pi: ({ target }) => ops._chatKind('pi', target),
+    codeaf: ({ target }) => ops._chatKind('codeaf', target),
+    claude: ({ target }) => ops._chatKind('claude', target),
+    codex: ({ target }) => ops._chatKind('codex', target),
+    gemini: ({ target }) => ops._chatKind('gemini', target),
+    opencode: ({ target }) => ops._chatKind('opencode', target),
+    agentAuth: () => ({
+      auth: Object.fromEntries(AGENT_CATALOG.map((a) => [a.id, { login: a.login, hint: a.loginHint }])),
+      kinds: ['claude', 'codex', 'gemini', 'opencode'],
+    }),
     resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
+    agents: ({ bins = [] }) => ({
+      agents: Object.fromEntries((bins || []).map((b) => [
+        b, presentBins.has(b) ? { present: true, path: `/usr/local/bin/${b}` } : { present: false },
+      ])),
+    }),
   };
   return {
     async call(op, args) {
-      await sleep(40 + Math.random() * 60); // fake network latency
+      // Keystrokes stay instant so the demo TUI feels like a local terminal; list/screen keep a light delay.
+      if (op !== 'send' && op !== 'keys' && op !== 'mouse') await sleep(12 + Math.random() * 18);
       if (!ops[op]) throw new Error('unknown op');
       return JSON.parse(JSON.stringify(ops[op](args)));
     },
@@ -985,15 +1288,26 @@ function armed(btn, label) {
   setTimeout(() => { delete btn.dataset.armed; b.textContent = old; }, 3000);
   return false;
 }
-const closeSheet = () => $('#sheet').classList.remove('on');
+function closeSheet() {
+  $('#sheet').classList.remove('on');
+  const fab = $('#new-window');
+  if (fab?.classList.contains('picking')) {
+    fab.classList.remove('picking');
+    fab.blur();
+    syncFabWide();
+  }
+}
 $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
 
-// iOS keyboard: keep the whole app (header, content, keys, composer) inside the visible area above it.
-// While a field is focused we only shrink the height and keep top at 0. Chasing visualViewport.offsetTop
-// fights Safari's own scroll-into-view and the sheet/composer jump up and down (looks like auto-zoom).
+// iOS keyboard: pin #stage to the visual viewport box.
+// Safari keeps position:fixed relative to the *layout* viewport and pans the *visual* viewport
+// when a field is focused. Leaving top at 0 → app sits above the visible area (black screen +
+// floating Safari URL pill). Never use transform to compensate (iOS zooms on focus if an
+// ancestor is transformed). Follow offsetTop/height; don't fight Safari's scroll while offset≠0.
 if (window.visualViewport) {
   const vv = window.visualViewport, root = document.documentElement.style;
-  let refit, frame = 0, last = '';
+  const stageEl = () => document.getElementById('stage');
+  let refit, frame = 0, last = '', lockTimer = 0;
   const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   const keepFieldInSheet = () => {
     const f = document.activeElement, sheet = typing() && f.closest?.('.sheet');
@@ -1004,37 +1318,68 @@ if (window.visualViewport) {
   };
   const apply = () => {
     frame = 0;
-    const focused = typing();
-    // Pinch-zoom: don't resize under the fingers. Focus-zoom must not happen (16px fields + no
-    // transform on #stage); if the page is still scaled, freeze rather than amplify the jump.
-    if (vv.scale > 1.01) return;
-    // The app is position:fixed; the document must stay at 0. Do not reset while typing —
-    // Safari scrolls to reveal the field and fighting it makes the sheet bounce.
-    if (!focused && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
-    const h = Math.round(vv.height);
-    // offsetTop only when nothing is focused (address-bar / pinch pan). During typing it is the
-    // scroll-into-view offset and applying it doubles the shift.
-    const top = focused ? 0 : Math.round(vv.offsetTop);
-    if (`${h}|${top}` === last) { if (focused) keepFieldInSheet(); return; }
-    last = `${h}|${top}`;
+    if (vv.scale > 1.01) return; // pinch-zoom: don't resize under the fingers
+    const h = Math.max(120, Math.round(vv.height));
+    const w = Math.max(200, Math.round(vv.width || window.innerWidth));
+    const top = Math.round(vv.offsetTop || 0);
+    const left = Math.round(vv.offsetLeft || 0);
+    // Space from the bottom of the visual viewport to the layout bottom (= keyboard + accessory).
+    const kbInset = Math.max(0, Math.round((window.innerHeight || h) - top - h));
+    // Reset layout scroll only when the visual viewport is already at the origin.
+    // scrollTo(0,0) while offsetTop>0 fights Safari's keyboard pan → blank frames.
+    if ((window.scrollY || window.scrollX) && !top && !left) window.scrollTo(0, 0);
+    const dock = document.getElementById('dock');
+    const dockH = (typing() && dock && !$('#v-window')?.classList.contains('kb-on'))
+      ? Math.round(dock.getBoundingClientRect().height) : 0;
+    const key = `${h}|${w}|${top}|${left}|${kbInset}|${dockH}|${typing() ? 1 : 0}`;
+    if (key === last) { if (typing()) keepFieldInSheet(); return; }
+    last = key;
     root.setProperty('--app-h', `${h}px`);
+    root.setProperty('--app-w', `${w}px`);
     root.setProperty('--app-top', `${top}px`);
+    root.setProperty('--app-left', `${left}px`);
+    root.setProperty('--kb-inset', `${kbInset}px`);
+    if (dockH) root.setProperty('--dock-h', `${dockH}px`);
+    const st = stageEl();
+    if (st) {
+      st.style.top = `${top}px`;
+      st.style.left = `${left}px`;
+      st.style.height = `${h}px`;
+      st.style.width = `${w}px`;
+    }
+    document.documentElement.classList.toggle('kb-open', typing());
     keepFieldInSheet();
-    // The terminal gets fewer rows while the keyboard is open, so the TUI redraws its input line in view.
     clearTimeout(refit);
     refit = setTimeout(() => { if (nav.length && nav[nav.length - 1].id === 'v-window' && W.mode === 'term') fitToPhone().then(tick); }, 250);
   };
   const fit = () => { if (!frame) frame = requestAnimationFrame(apply); };
-  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+  const lockWhileTyping = () => {
+    clearInterval(lockTimer);
+    let n = 0;
+    // Re-pin for ~3s while WebKit settles keyboard + visualViewport.
+    lockTimer = setInterval(() => {
+      if (!typing() || ++n > 60) { clearInterval(lockTimer); lockTimer = 0; return; }
+      last = '';
+      fit();
+    }, 50);
+  };
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  window.addEventListener('orientationchange', () => { last = ''; setTimeout(fit, 120); });
+  window.addEventListener('scroll', () => { if (typing()) { last = ''; fit(); } }, { passive: true });
   document.addEventListener('focusin', (e) => {
     if (!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '')) return;
-    // Drop any leftover document scroll / offset before the keyboard animation starts.
-    window.scrollTo(0, 0);
-    root.setProperty('--app-top', '0px');
+    try { e.target.focus({ preventScroll: true }); } catch {}
     last = '';
     fit();
+    lockWhileTyping();
   });
-  document.addEventListener('focusout', () => setTimeout(fit, 60));
+  document.addEventListener('focusout', () => setTimeout(() => {
+    last = '';
+    if (!typing() && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+    document.documentElement.classList.remove('kb-open');
+    fit();
+  }, 80));
   fit();
 }
 
@@ -1060,11 +1405,37 @@ function renderServers() {
       <div class="main"><b>${esc(s.name || s.host)}</b><small>${esc(s.user)}@${esc(s.host)}${s.port && s.port != 22 ? ':' + esc(s.port) : ''}</small></div>
       ${s.transport === 'demo' ? '<span class="pill">démo</span>' : s.transport === 'local' ? '<span class="pill">local</span>' : ''}
       ${CHEV}
-    </div></button>`).join('') + '</div><p class="hint">Touche un serveur pour voir ses fenêtres tmux en direct.</p>';
+    </div></button>`).join('') + '</div><p class="hint">Touche pour ouvrir · reste appuyé pour modifier la connexion SSH.</p>';
 }
+let srvSkipClick = false;
 $('#servers').addEventListener('click', (e) => {
   if (e.target.closest('[data-add]')) return go('v-form', () => fillForm(null));
+  if (srvSkipClick) { srvSkipClick = false; return; }
   const c = e.target.closest('.card'); if (c) openServer(c.dataset.id);
+});
+$('#servers').addEventListener('pointerdown', (e) => {
+  const c = e.target.closest('.card'); if (!c || e.target.closest('[data-add]')) return;
+  let moved = false, x0 = e.clientX, y0 = e.clientY;
+  const timer = setTimeout(() => {
+    if (moved) return;
+    srvSkipClick = true;
+    haptic(16);
+    go('v-form', () => fillForm(c.dataset.id));
+  }, 420);
+  const onMove = (ev) => {
+    if (Math.abs(ev.clientX - x0) > 10 || Math.abs(ev.clientY - y0) > 10) { moved = true; clearTimeout(timer); }
+  };
+  const onEnd = () => {
+    clearTimeout(timer);
+    c.releasePointerCapture?.(e.pointerId);
+    c.removeEventListener('pointermove', onMove);
+    c.removeEventListener('pointerup', onEnd);
+    c.removeEventListener('pointercancel', onEnd);
+  };
+  try { c.setPointerCapture(e.pointerId); } catch {}
+  c.addEventListener('pointermove', onMove);
+  c.addEventListener('pointerup', onEnd);
+  c.addEventListener('pointercancel', onEnd);
 });
 $('#add-server').addEventListener('click', () => go('v-form', () => fillForm(null)));
 
@@ -1166,15 +1537,32 @@ $('#import-config').addEventListener('click', () => {
 // Screen 3: tmux windows of a server (= tmux ls, one row per window)
 // =====================================================================
 let srv = null, listTimer = null, lastWindows = [];
+const haptic = (ms = 12) => { try { navigator.vibrate?.(ms); } catch {} };
 function openServer(id) {
   srv = state.servers.find((x) => x.id === id);
   go('v-windows', enterWindows);
-  nav[nav.length - 1].leave = () => clearInterval(listTimer);
+  nav[nav.length - 1].leave = () => { clearInterval(listTimer); boardGest = null; };
+}
+function syncFabWide() {
+  const fab = $('#new-window');
+  const sc = $('#v-windows .scroll');
+  if (!fab || !sc) return;
+  const picking = fab.classList.contains('picking') && $('#sheet')?.classList.contains('on');
+  const maxScroll = sc.scrollHeight - sc.clientHeight;
+  const hasEmpty = !!$('#windows .empty');
+  // Appear near the end of the board. Empty state already has its own CTA — keep the FAB away.
+  const nearEnd = !hasEmpty && (maxScroll <= 48 || sc.scrollTop >= maxScroll - 96);
+  const show = picking || nearEnd;
+  fab.classList.toggle('hide', !show);
+  fab.classList.toggle('wide', picking || (show && (sc.scrollTop > 28 || maxScroll <= 48)));
 }
 function enterWindows() {
-  $('#srv-name').textContent = srv.name || srv.host;
-  $('#srv-sub').textContent = `${srv.user}@${srv.host}`;
-  if (!lastWindows.length || lastWindows.srv !== srv.id) $('#windows').innerHTML = '<div class="cards"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+  $('#srv-name').textContent = 'Dashboard';
+  $('#srv-sub').textContent = `${srv.name || srv.host} · ${srv.user}@${srv.host}`;
+  if (!lastWindows.length || lastWindows.srv !== srv.id) {
+    $('#windows').innerHTML = '<div class="board" data-layout="grid"><div class="skeleton" style="grid-column:1/-1"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+  }
+  syncFabWide();
   refreshWindows();
   clearInterval(listTimer); listTimer = setInterval(refreshWindows, 3000);
 }
@@ -1182,9 +1570,16 @@ let lastPreviews = {}, lastListHtml = '';
 async function refreshWindows() {
   if (document.hidden) return;
   try {
-    const [{ windows }, pv] = await Promise.all([api(srv, 'list'), api(srv, 'previews', { lines: 10 }).catch(() => ({ previews: {} }))]);
+    const [{ windows }, pv, agentsRes] = await Promise.all([
+      api(srv, 'list'),
+      api(srv, 'previews', { lines: 20 }).catch(() => ({ previews: {} })),
+      api(srv, 'agents', { bins: [...AGENT_CATALOG.map((a) => a.bin), 'htop'] }).catch(() => ({ agents: lastAgents })),
+    ]);
     lastWindows = windows; lastWindows.srv = srv.id; lastPreviews = pv.previews || {};
-    drawWindows(windows);
+    lastAgents = inferAgentsFromWindows(agentsRes.agents || {}, windows);
+    syncBoard(windows);
+    // Don't rebuild the DOM mid-swipe / mid-long-press.
+    if (!(boardGest && boardGest.tile)) drawWindows(windows);
   } catch (e) {
     lastListHtml = '';
     $('#windows').innerHTML = `<div class="empty"><b>Connexion impossible</b>${esc(e.message)}<br><button class="btn ghost" data-retry>Réessayer</button></div>`;
@@ -1193,16 +1588,43 @@ async function refreshWindows() {
 // Program icon and colour for a window.
 function glyphOf(w) {
   const cmd = w.command || '', all = `${cmd} ${w.name || ''}`;
+  if (/^codeaf$/i.test(cmd) || /^codeaf$/i.test(w.name || '')) return ['◈', 'agent'];
   if (/^pi$/i.test(cmd) || /^pi$/i.test(w.name || '')) return ['π', 'pi'];
   if (/claude/i.test(all)) return ['✻', 'agent'];
   if (/codex/i.test(all)) return ['◎', 'agent'];
   if (/gemini/i.test(all)) return ['✦', 'agent'];
+  if (/opencode/i.test(all)) return ['◆', 'agent'];
+  if (/aider/i.test(all)) return ['♦', 'agent'];
   if (AGENT_RE.test(cmd) || AGENT_RE.test(w.name || '')) return ['◆', 'agent'];
   if (/weechat|irssi/i.test(all)) return ['#', 'chat'];
   if (/^(h|b)?top$/.test(cmd)) return ['▤', ''];
-  if (/tail|journalctl|less/.test(cmd)) return ['≡', ''];
+  if (/tail|journalctl|less|logs?/i.test(cmd) || /log/i.test(w.name || '')) return ['≡', ''];
   return ['$', ''];
 }
+function inferAgentsFromWindows(agents, windows = lastWindows) {
+  const out = { ...(agents || {}) };
+  for (const w of windows || []) {
+    const cmd = String(w.command || '').toLowerCase();
+    const base = cmd.split('/').pop();
+    const name = String(w.name || '').toLowerCase();
+    for (const a of AGENT_CATALOG) {
+      const b = a.bin.toLowerCase();
+      // pane_current_command is often "node" for JS agents — window name still says pi/claude.
+      if (base === b || name === b || name.startsWith(`${b} `) || name.startsWith(`${b}-`) || name.startsWith(`${b}_`)) {
+        if (!out[a.bin]?.present) out[a.bin] = { present: true, path: out[a.bin]?.path || w.command || a.bin };
+      }
+    }
+  }
+  return out;
+}
+async function refreshAgents(windows = lastWindows) {
+  try {
+    const bins = [...AGENT_CATALOG.map((a) => a.bin), 'htop'];
+    const { agents } = await api(srv, 'agents', { bins });
+    lastAgents = inferAgentsFromWindows(agents || {}, windows);
+  } catch { /* keep previous */ }
+}
+const agentPresent = (bin) => !!(bin && lastAgents[bin]?.present);
 // What the program is doing, from the bottom of its screen.
 const WAIT_RE = /\b(y\/n|yes\/no|Allow|Approve|Do you want|Continue\?|Press enter)\b|\[[Yy]\/[Nn]\]|❯\s*1\.\s*Yes/;
 function statusOf(lines) {
@@ -1210,80 +1632,595 @@ function statusOf(lines) {
   return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
 }
 const PILL = { working: '<span class="pill working"><i class="sdot working"></i>en cours</span>', waiting: '<span class="pill waiting"><i class="sdot waiting"></i>t\'attend</span>', idle: '' };
-function previewOf(w) {
+
+// ---------- dashboard board: order, display names, colours, preview size (tmux names stay untouched) ----------
+const TILE_LINES = { s: 0, m: 3, l: 8, xl: 16 };
+const TILE_COLORS = {
+  mint: '#5be3a4', amber: '#f5b84a', rose: '#ff6b8a', sky: '#6ccdff',
+  violet: '#9d8cff', sand: '#e6c07b', slate: '#8b93a7',
+};
+const COLOR_IDS = Object.keys(TILE_COLORS);
+const guessColor = (w) => {
+  const [g, cls] = glyphOf(w);
+  if (cls === 'pi') return 'mint';
+  if (cls === 'agent') return 'violet';
+  if (cls === 'chat') return 'sky';
+  if (g === '≡') return 'amber';
+  if (g === '▤') return 'sand';
+  return 'slate';
+};
+const guessSize = (w) => (/log|tail|journal/i.test(`${w.name} ${w.command}`) ? 'l' : 'm');
+const tileId = (w) => `${w.session}:${w.window}`;
+function boardOf() {
+  if (!state.board) state.board = {};
+  if (!state.board[srv.id]) state.board[srv.id] = { order: [], tiles: {}, layout: 'grid' };
+  const b = state.board[srv.id];
+  if (!b.layout) b.layout = 'grid';
+  return b;
+}
+function tileMeta(w) {
+  const b = boardOf(), id = tileId(w);
+  const t = b.tiles[id] || {};
+  return {
+    id, title: t.title || '', color: TILE_COLORS[t.color] ? t.color : guessColor(w),
+    size: TILE_LINES[t.size] != null ? t.size : guessSize(w),
+  };
+}
+function displayName(w) { return tileMeta(w).title || w.name; }
+function syncBoard(windows) {
+  const b = boardOf();
+  const live = new Set(windows.map(tileId));
+  let dirty = false;
+  const nextOrder = b.order.filter((id) => live.has(id));
+  if (nextOrder.length !== b.order.length) dirty = true;
+  b.order = nextOrder;
+  for (const id of Object.keys(b.tiles)) {
+    if (!live.has(id)) { delete b.tiles[id]; dirty = true; }
+  }
+  for (const w of windows) {
+    const id = tileId(w);
+    if (!b.order.includes(id)) { b.order.push(id); dirty = true; }
+    if (!b.tiles[id]) {
+      const tile = { color: guessColor(w), size: guessSize(w) };
+      // Demo board ships with readable labels so the prototype shows the point immediately.
+      if (srv.id === 'demo') {
+        const demo = {
+          'main:1': { title: 'CodeAF', size: 'm', color: 'mint' },
+          'main:2': { title: 'Agent pi', size: 'm' },
+          'main:3': { title: 'Claude', size: 'm' },
+          'main:4': { title: 'Codex', size: 'm' },
+          'main:5': { title: 'Gemini', size: 'm' },
+          'main:6': { title: 'OpenCode', size: 'm' },
+          'infra:0': { title: 'Logs API', size: 'xl' },
+          'infra:1': { title: 'IRC', size: 'm' },
+          'infra:2': { title: 'Deploy', size: 'm' },
+        }[id];
+        if (demo) Object.assign(tile, demo);
+      }
+      b.tiles[id] = tile; dirty = true;
+    } else if (srv.id === 'demo' && id === 'main:4' && b.tiles[id].title === 'Charge') {
+      // Older demo seed used a bad label for the Codex window.
+      b.tiles[id].title = 'Codex'; dirty = true;
+    }
+  }
+  if (dirty) save();
+}
+function previewOf(w, n) {
   const raw = lastPreviews[`${w.session}:${w.window}`] || [];
-  const lines = raw.length ? cleanScreen(raw.join('\n'), w.width || 80).filter((l) => l.trim()).slice(-2) : [];
+  const want = n ?? TILE_LINES[tileMeta(w).size] ?? 3;
+  const lines = want > 0 && raw.length
+    ? cleanScreen(raw.join('\n'), w.width || 80).filter((l) => l.trim()).slice(-want)
+    : [];
   return { status: statusOf(raw), lines };
+}
+function renderTile(w, openId) {
+  const meta = tileMeta(w), pv = previewOf(w), [g] = glyphOf(w);
+  const label = displayName(w);
+  const sub = [w.command, `${w.session}:${w.window}`, w.name !== label ? w.name : '', ago(w.activity)].filter(Boolean).join(' · ');
+  const open = openId === meta.id ? ' open' : '';
+  const tx = openId === meta.id ? ' style="transform:translateX(-88px)"' : '';
+  const span = meta.size === 'l' || meta.size === 'xl' ? '2' : '1';
+  return `<div class="brow${open}" data-id="${esc(meta.id)}" data-span="${span}">
+    <button type="button" class="bdel" data-del aria-label="Supprimer ${esc(label)}">Supprimer</button>
+    <article class="btile" role="button" tabindex="0" data-id="${esc(meta.id)}" data-s="${esc(w.session)}" data-w="${w.window}" data-size="${meta.size}" style="--tile-c:${TILE_COLORS[meta.color]}" aria-label="${esc(label)}"${tx}>
+      <div class="top">
+        <span class="swatch" aria-hidden="true">${esc(g)}</span>
+        <div class="main"><b>${esc(label)}</b><small>${esc(sub)}</small></div>
+        ${PILL[pv.status]}
+      </div>
+      ${pv.lines.length ? `<div class="preview">${pv.lines.map((l) => `<div>${esc(l.trim())}</div>`).join('')}</div>` : ''}
+    </article>
+  </div>`;
 }
 function drawWindows(windows) {
   const box = $('#windows');
   if (!windows.length) {
     box.innerHTML = '<div class="empty"><b>Aucune fenêtre tmux</b>Lance un agent ou un shell en deux touches.<br><button class="btn" data-new>Nouvelle fenêtre</button></div>';
-    lastListHtml = ''; return;
+    lastListHtml = '';
+    requestAnimationFrame(syncFabWide);
+    return;
   }
-  const sessions = [...new Set(windows.map((w) => w.session))];
-  const html = sessions.map((s) => {
-    const ws = windows.filter((w) => w.session === s);
-    return `<div class="group-title">${esc(s)}<small>${ws.length} fenêtre${ws.length > 1 ? 's' : ''}</small></div><div class="cards">${ws.map((w) => {
-      const [g, cls] = glyphOf(w), pv = previewOf(w);
-      return `<button class="card" data-s="${esc(w.session)}" data-w="${w.window}"><div class="top">
-        <div class="tile ${cls}">${esc(g)}<span class="idx">${w.window}</span></div>
-        <div class="main"><b>${esc(w.name)}</b><small><span>${esc(w.command)}</span><span>·</span><span>${ago(w.activity)}</span></small></div>
-        ${PILL[pv.status]}</div>
-        ${pv.lines.length ? `<div class="preview">${pv.lines.map((l) => `<div>${esc(l.trim())}</div>`).join('')}</div>` : ''}
-      </button>`;
-    }).join('')}</div>`;
+  const byId = Object.fromEntries(windows.map((w) => [tileId(w), w]));
+  const ordered = boardOf().order.map((id) => byId[id]).filter(Boolean);
+  const sessionOrder = [];
+  for (const w of ordered) if (!sessionOrder.includes(w.session)) sessionOrder.push(w.session);
+  for (const w of windows) if (!sessionOrder.includes(w.session)) sessionOrder.push(w.session);
+  const stats = { working: 0, waiting: 0, idle: 0 };
+  ordered.forEach((w) => { stats[previewOf(w).status]++; });
+  const openId = boardGest?.openId || '';
+  const board = sessionOrder.map((s) => {
+    const ws = ordered.filter((w) => w.session === s);
+    return `<div class="group-title sess" data-sess="${esc(s)}"><span>${esc(s)}</span>
+      <span class="sess-acts">
+        <small>${ws.length}</small>
+        <button type="button" data-sess-new="${esc(s)}" aria-label="Nouvelle fenêtre dans ${esc(s)}">＋</button>
+        <button type="button" data-sess-rename="${esc(s)}" aria-label="Renommer la session ${esc(s)}">✎</button>
+      </span>
+    </div>${ws.map((w) => renderTile(w, openId)).join('')}`;
   }).join('');
-  if (html !== lastListHtml) { lastListHtml = html; box.innerHTML = html; }
+  const pulse = [
+    stats.working ? `<span class="pill working"><i class="sdot working"></i>${stats.working} en cours</span>` : '',
+    stats.waiting ? `<span class="pill waiting"><i class="sdot waiting"></i>${stats.waiting} t'attend</span>` : '',
+    !stats.working && !stats.waiting ? `<span class="quiet">${windows.length} fenêtre${windows.length > 1 ? 's' : ''} · tout est calme</span>` : `<span class="quiet">${windows.length} au total</span>`,
+  ].join('');
+  const layout = boardOf().layout === 'list' ? 'list' : 'grid';
+  const html = `<div class="board-head">
+    <div class="board-pulse">${pulse}</div>
+    <div class="board-tools">
+      <button type="button" class="board-help-link" data-board-help aria-label="Personnaliser le dashboard">Aide</button>
+      <div class="seg" role="group" aria-label="Disposition du dashboard">
+        <button type="button" data-layout="grid" class="${layout === 'grid' ? 'on' : ''}">Grille</button>
+        <button type="button" data-layout="list" class="${layout === 'list' ? 'on' : ''}">Liste</button>
+      </div>
+    </div>
+  </div>
+    <div class="board" id="board" data-layout="${layout}">${board}</div>`;
+  if (html !== lastListHtml) {
+    lastListHtml = html;
+    box.innerHTML = html;
+    requestAnimationFrame(syncFabWide);
+  }
 }
+$('#edit-server').addEventListener('click', () => go('v-form', () => fillForm(srv.id)));
+
+function moveTile(id, dir) {
+  const b = boardOf();
+  const win = lastWindows.find((x) => tileId(x) === id); if (!win) return;
+  // Keep order inside the session group — the board stays session-sorted.
+  const peers = b.order.filter((oid) => oid.startsWith(`${win.session}:`));
+  const i = peers.indexOf(id), j = i + dir;
+  if (i < 0 || j < 0 || j >= peers.length) return;
+  const gi = b.order.indexOf(id), gj = b.order.indexOf(peers[j]);
+  [b.order[gi], b.order[gj]] = [b.order[gj], b.order[gi]];
+  save(); lastListHtml = ''; drawWindows(lastWindows);
+}
+function remapBoardSession(from, to) {
+  const b = boardOf();
+  const nextTiles = {};
+  for (const [id, meta] of Object.entries(b.tiles)) {
+    nextTiles[id.startsWith(`${from}:`) ? `${to}:${id.slice(from.length + 1)}` : id] = meta;
+  }
+  b.tiles = nextTiles;
+  b.order = b.order.map((id) => (id.startsWith(`${from}:`) ? `${to}:${id.slice(from.length + 1)}` : id));
+  save();
+}
+function confirmKillWindow(w) {
+  const label = displayName(w);
+  openSheet(`<h3>Supprimer « ${esc(label)} » ?</h3>
+    <p class="hint" style="margin:0 0 14px">Ferme la fenêtre tmux <code style="font-family:var(--mono)">${esc(w.session)}:${w.window}</code> (${esc(w.name)}). Irréversible.</p>
+    <button type="button" class="btn danger" id="kill-yes">Supprimer la fenêtre</button>
+    <button type="button" class="btn ghost" id="kill-no">Annuler</button>`, (el) => {
+    $('#kill-no', el).onclick = closeSheet;
+    $('#kill-yes', el).onclick = async () => {
+      closeSheet();
+      try {
+        await api(srv, 'kill', { target: w });
+        lastWindows = lastWindows.filter((x) => !(x.session === w.session && x.window === w.window));
+        syncBoard(lastWindows); lastListHtml = ''; drawWindows(lastWindows);
+        toast(`« ${label} » fermée`);
+      } catch (e) { toast(e.message); }
+    };
+  });
+}
+function openRenameSession(session) {
+  openSheet(`<h3>Renommer la session</h3>
+    <p class="hint" style="margin:0 0 12px">Nom tmux actuel : <code style="font-family:var(--mono)">${esc(session)}</code></p>
+    <div class="list"><label class="field"><span>Nouveau nom de session</span><input id="sess-name" value="${esc(session)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label></div>
+    <button type="button" class="btn" id="sess-save" style="margin-top:14px">Renommer</button>
+    <button type="button" class="btn ghost" id="sess-cancel">Annuler</button>`, (el) => {
+    $('#sess-cancel', el).onclick = closeSheet;
+    $('#sess-save', el).onclick = async () => {
+      const name = ($('#sess-name', el).value || '').trim();
+      if (!name || name === session) return closeSheet();
+      try {
+        await api(srv, 'renameSession', { session, name });
+        remapBoardSession(session, name);
+        lastWindows.forEach((w) => { if (w.session === session) w.session = name; });
+        closeSheet(); lastListHtml = ''; drawWindows(lastWindows);
+        toast(`Session « ${name} »`);
+      } catch (e) { toast(e.message); }
+    };
+  });
+}
+function openTileEditor(w) {
+  const meta = tileMeta(w);
+  let title = meta.title, color = meta.color, size = meta.size;
+  openSheet(`<h3>${esc(displayName(w))}</h3>
+    <div class="sub" style="margin-top:0">Sur le téléphone</div>
+    <div class="list"><label class="field"><span>Nom local (tableau uniquement)</span><input id="tile-title" value="${esc(title)}" placeholder="${esc(w.name)}" autocapitalize="sentences"></label></div>
+    <div class="sub">Couleur</div>
+    <div class="swatch-pick" id="tile-color">${COLOR_IDS.map((c) => `<button type="button" data-c="${c}" class="${c === color ? 'on' : ''}" style="--sw:${TILE_COLORS[c]}" aria-label="${c}"></button>`).join('')}</div>
+    <div class="sub">Aperçu</div>
+    <div class="size-pick" id="tile-size">
+      <button type="button" data-z="s" class="${size === 's' ? 'on' : ''}">Compact<small>statut</small></button>
+      <button type="button" data-z="m" class="${size === 'm' ? 'on' : ''}">Normal<small>3 lignes</small></button>
+      <button type="button" data-z="l" class="${size === 'l' ? 'on' : ''}">Logs<small>8 lignes</small></button>
+      <button type="button" data-z="xl" class="${size === 'xl' ? 'on' : ''}">Watch<small>16 lignes</small></button>
+    </div>
+    <div class="sub">Dans tmux</div>
+    <div class="list">
+      <label class="field"><span>Nom de la fenêtre</span><input id="tile-tmux" value="${esc(w.name)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label class="field"><span>Session</span><input id="tile-sess" value="${esc(w.session)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    </div>
+    <div class="list menu" style="margin-top:16px">
+      <button class="row" type="button" data-a="up"><div class="main"><b>Monter</b><small>réordonner dans le tableau</small></div></button>
+      <button class="row" type="button" data-a="down"><div class="main"><b>Descendre</b><small>réordonner dans le tableau</small></div></button>
+    </div>
+    <button type="button" class="btn" id="tile-save" style="margin-top:14px">Enregistrer</button>
+    <button type="button" class="btn danger" id="tile-kill">Supprimer la fenêtre…</button>`, (el) => {
+    $('#tile-color', el).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-c]'); if (!b) return;
+      color = b.dataset.c; $$('#tile-color button', el).forEach((x) => x.classList.toggle('on', x === b));
+    });
+    $('#tile-size', el).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-z]'); if (!b) return;
+      size = b.dataset.z; $$('#tile-size button', el).forEach((x) => x.classList.toggle('on', x === b));
+    });
+    $$('[data-a]', el).forEach((r) => r.addEventListener('click', () => {
+      moveTile(tileId(w), r.dataset.a === 'up' ? -1 : 1);
+      closeSheet();
+    }));
+    $('#tile-save', el).addEventListener('click', async () => {
+      title = ($('#tile-title', el).value || '').trim();
+      const tmuxName = ($('#tile-tmux', el).value || '').trim();
+      const sessName = ($('#tile-sess', el).value || '').trim();
+      const b = boardOf(), id = tileId(w);
+      b.tiles[id] = { ...b.tiles[id], title, color, size };
+      save();
+      try {
+        if (tmuxName && tmuxName !== w.name) {
+          await api(srv, 'rename', { target: w, name: tmuxName });
+          w.name = tmuxName;
+        }
+        if (sessName && sessName !== w.session) {
+          await api(srv, 'renameSession', { session: w.session, name: sessName });
+          remapBoardSession(w.session, sessName);
+          lastWindows.forEach((x) => { if (x.session === w.session) x.session = sessName; });
+        }
+        closeSheet(); lastListHtml = ''; drawWindows(lastWindows);
+      } catch (e) { toast(e.message); }
+    });
+    $('#tile-kill', el).addEventListener('click', () => { closeSheet(); setTimeout(() => confirmKillWindow(w), 180); });
+  });
+}
+
+// Gestures: tap = open, long-press = edit (+ haptic), swipe left = reveal delete.
+const SWIPE_W = 88;
+let boardGest = null;
+const winFromEl = (el) => {
+  const t = el?.closest?.('[data-s][data-w]'); if (!t) return null;
+  return lastWindows.find((x) => x.session === t.dataset.s && x.window === Number(t.dataset.w)) || null;
+};
+const closeOpenRows = (except) => {
+  $$('#board .brow.open').forEach((r) => {
+    if (r === except) return;
+    r.classList.remove('open');
+    const tile = r.querySelector('.btile');
+    if (tile) { tile.style.transform = ''; tile.classList.add('snap'); }
+  });
+  if (boardGest) boardGest.openId = except?.dataset?.id || '';
+};
+$('#windows').addEventListener('pointerdown', (e) => {
+  // button[data-layout] only — #board also has data-layout and must not swallow tile taps.
+  if (e.target.closest('[data-new], [data-retry], button[data-layout], [data-board-help], .bdel, .sess-acts, .appearance-toggle')) return;
+  const tile = e.target.closest('.btile'); if (!tile) return;
+  const row = tile.closest('.brow');
+  closeOpenRows(row.classList.contains('open') ? row : null);
+  tile.classList.add('pressing');
+  boardGest = {
+    tile, row, id: tile.dataset.id, x: e.clientX, y: e.clientY, ox: row.classList.contains('open') ? -SWIPE_W : 0,
+    swiping: false, moved: false, long: null, opened: false, pid: e.pointerId,
+  };
+  boardGest.long = setTimeout(() => {
+    if (!boardGest || boardGest.moved || boardGest.swiping) return;
+    boardGest.opened = true;
+    tile.classList.remove('pressing', 'swiping');
+    haptic(16);
+    const w = winFromEl(tile);
+    boardGest = null;
+    if (w) openTileEditor(w);
+  }, 420);
+  try { tile.setPointerCapture(e.pointerId); } catch {}
+});
+$('#windows').addEventListener('pointermove', (e) => {
+  const g = boardGest; if (!g || g.opened || !g.tile) return;
+  if (g.pid != null && e.pointerId !== g.pid) return;
+  const dx = e.clientX - g.x, dy = e.clientY - g.y;
+  if (!g.swiping && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+    g.moved = true;
+    // Prefer horizontal swipe once the finger/mouse clearly moves sideways.
+    if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) > 6) {
+      g.swiping = true;
+      clearTimeout(g.long);
+      g.tile.classList.add('swiping');
+      g.tile.classList.remove('pressing');
+      g.tile.style.transition = 'none';
+    } else if (Math.abs(dy) > Math.abs(dx) + 4) {
+      // vertical scroll — abandon the gesture
+      clearTimeout(g.long);
+      g.tile.classList.remove('pressing', 'swiping');
+      try { g.tile.releasePointerCapture(g.pid); } catch {}
+      boardGest = null;
+      return;
+    }
+  }
+  if (!g.swiping) return;
+  e.preventDefault();
+  const x = Math.min(0, Math.max(-SWIPE_W - 24, g.ox + dx));
+  g.tile.style.transform = `translateX(${x}px)`;
+  g.tx = x;
+}, { passive: false });
+const endBoardGest = (e) => {
+  const g = boardGest; if (!g?.tile || g.done) return; // openId-only marker must not run the end path
+  if (e && g.pid != null && e.pointerId !== g.pid) return;
+  g.done = true;
+  clearTimeout(g.long);
+  g.tile.classList.remove('pressing', 'swiping');
+  if (g.opened) { boardGest = null; return; }
+  if (g.swiping) {
+    g.tile.style.transition = '';
+    const open = (g.tx ?? g.ox) < -SWIPE_W * 0.4;
+    g.row.classList.toggle('open', open);
+    g.tile.style.transform = open ? `translateX(-${SWIPE_W}px)` : '';
+    g.tile.classList.add('snap');
+    boardGest = { openId: open ? g.id : '' };
+    return;
+  }
+  const tap = !g.moved && (!e || e.type !== 'pointercancel');
+  if (tap && (g.ox < 0 || g.row.classList.contains('open'))) {
+    g.row.classList.remove('open');
+    g.tile.style.transform = '';
+    g.tile.classList.add('snap');
+    boardGest = { openId: '' };
+    return;
+  }
+  boardGest = { openId: '' };
+  if (tap) {
+    const w = winFromEl(g.tile);
+    if (w) openWindow(w);
+  }
+};
+$('#windows').addEventListener('pointerup', endBoardGest);
+$('#windows').addEventListener('pointercancel', endBoardGest);
+$('#windows').addEventListener('lostpointercapture', endBoardGest);
 $('#windows').addEventListener('click', (e) => {
   if (e.target.closest('[data-retry]')) return refreshWindows();
   if (e.target.closest('[data-new]')) return $('#new-window').click();
-  const c = e.target.closest('.card'); if (!c) return;
-  const w = lastWindows.find((x) => x.session === c.dataset.s && x.window === Number(c.dataset.w));
-  if (w) openWindow(w);
+  const layoutBtn = e.target.closest('button[data-layout]');
+  if (layoutBtn) {
+    boardOf().layout = layoutBtn.dataset.layout === 'list' ? 'list' : 'grid';
+    save(); lastListHtml = ''; drawWindows(lastWindows);
+    return;
+  }
+  if (e.target.closest('[data-board-help]')) {
+    openSheet(`<h3>Personnaliser le dashboard</h3>
+      <p class="hint" style="margin:0 0 12px">Chaque tuile est réglable sur ce téléphone. Les noms tmux restent inchangés sauf si tu les modifies dans la fiche.</p>
+      <div class="list menu">
+        <div class="row"><div class="main"><b>Reste appuyé</b><small>nom local, couleur, taille d’aperçu, ordre</small></div></div>
+        <div class="row"><div class="main"><b>Glisse à gauche</b><small>supprimer la fenêtre tmux</small></div></div>
+        <div class="row"><div class="main"><b>Grille / Liste</b><small>disposition du tableau (logs en pleine largeur)</small></div></div>
+        <div class="row"><div class="main"><b>＋ sur une session</b><small>nouvelle fenêtre dans ce groupe</small></div></div>
+        <div class="row"><div class="main"><b>＋ en bas de page</b><small>nouvelle fenêtre — agents et shell</small></div></div>
+      </div>
+      <button type="button" class="btn" id="board-help-ok" style="margin-top:14px">Compris</button>`, (el) => {
+      $('#board-help-ok', el).onclick = closeSheet;
+    });
+    return;
+  }
+  const sessNew = e.target.closest('[data-sess-new]');
+  if (sessNew) { newSession = sessNew.dataset.sessNew; return $('#new-window').click(); }
+  const sessRename = e.target.closest('[data-sess-rename]');
+  if (sessRename) return openRenameSession(sessRename.dataset.sessRename);
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    const row = del.closest('.brow');
+    const w = winFromEl(row?.querySelector('.btile'));
+    if (w) confirmKillWindow(w);
+    return;
+  }
+  // Tile open is handled on pointerup (avoids firing after a swipe / long-press).
 });
-$('#edit-server').addEventListener('click', () => go('v-form', () => fillForm(srv.id)));
+document.addEventListener('click', (e) => {
+  const tog = e.target.closest('.appearance-toggle');
+  if (!tog) return;
+  state.appearance = state.appearance === 'light' ? 'dark' : 'light';
+  save(); applyAppearance();
+});
 
-// Two taps: ＋ then a preset -> window created with the command running, and opened.
-let newSession = null;
-$('#new-window').addEventListener('click', () => {
-  const sessions = [...new Set([srv.session || 'main', ...lastWindows.map((w) => w.session)])];
-  newSession = newSession && sessions.includes(newSession) ? newSession : sessions[0];
-  const presets = parsePresets(srv.presets);
-  openSheet(`
-    <h3>Nouvelle fenêtre</h3>
-    <div class="presets">${presets.map((p, i) => `
-      <button class="preset ${glyphOf({ command: p.cmd.split(/\s+/)[0], name: p.label })[1]}" data-i="${i}"><span class="glyph">${esc(p.cmd ? glyphOf({ command: p.cmd.split(/\s+/)[0], name: p.label })[0] : '$')}</span>${esc(p.label)}<small>${esc(p.cmd || 'shell')}</small></button>`).join('')}
-    </div>
-    <div class="sub">Session</div>
-    <div class="chips"></div>
-    <form class="inline" id="newsess"><input name="s" placeholder="nouvelle session…" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="ghost">Créer</button></form>
-    <div class="sub">Autre commande</div>
-    <form class="inline" id="custom" style="margin-top:0"><input name="cmd" placeholder="ex : npm run dev" autocapitalize="off" autocorrect="off" spellcheck="false"><button>Lancer</button></form>`,
-  (el) => {
-    const drawChips = () => {
-      $('.chips', el).innerHTML = sessions.map((s) => `<button type="button" data-s="${esc(s)}" class="${s === newSession ? 'on' : ''}">${esc(s)}</button>`).join('');
-      $$('.chips button', el).forEach((b) => (b.onclick = () => { newSession = b.dataset.s; drawChips(); }));
-    };
-    drawChips();
-    $$('.preset', el).forEach((b) => b.addEventListener('click', () => {
-      const p = presets[Number(b.dataset.i)]; createWindow(p.label.toLowerCase(), p.cmd);
-    }));
-    $('#custom', el).addEventListener('submit', (e) => {
-      e.preventDefault(); const cmd = e.target.cmd.value.trim(); if (cmd) createWindow(cmd.split(/\s+/)[0].split('/').pop(), cmd);
-    });
-    $('#newsess', el).addEventListener('submit', (e) => {
-      e.preventDefault(); const s = e.target.s.value.trim().replace(/[.:]/g, '-'); if (!s) return;
-      if (!sessions.includes(s)) sessions.push(s);
-      newSession = s; drawChips(); e.target.reset();
-    });
+// Long-press the server title (or a server card) to edit the SSH connection.
+function bindLongPress(el, fn) {
+  let t = null, moved = false, x0 = 0, y0 = 0;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, a, input')) return;
+    moved = false; x0 = e.clientX; y0 = e.clientY;
+    el.classList.add('pressing');
+    t = setTimeout(() => { if (!moved) { el.classList.remove('pressing'); haptic(16); fn(); } t = null; }, 420);
   });
+  const clear = () => { clearTimeout(t); t = null; el.classList.remove('pressing'); };
+  el.addEventListener('pointermove', (e) => {
+    if (Math.abs(e.clientX - x0) > 10 || Math.abs(e.clientY - y0) > 10) { moved = true; clear(); }
+  });
+  el.addEventListener('pointerup', clear);
+  el.addEventListener('pointercancel', clear);
+}
+bindLongPress($('#srv-title'), () => go('v-form', () => fillForm(srv.id)));
+
+// Two taps: ＋ then an installed agent -> window. Missing agents show official docs + install.
+// Login runs each agent's official CLI auth in a tmux window (interactive TUI).
+let newSession = null;
+function openInstallSheet(a) {
+  const loginBtn = a.login
+    ? `<button type="button" id="do-login">Se connecter</button>`
+    : '';
+  openSheet(`<h3>Installer ${esc(a.label)}</h3>
+    <div class="agent-install">
+      <p>${esc(a.blurb)}</p>
+      <div class="cmd">${esc(a.install)}</div>
+      <div class="acts">
+        <a href="${esc(a.docs)}" target="_blank" rel="noopener noreferrer">Doc officielle</a>
+        <button type="button" class="primary" id="do-install">Installer sur ce serveur</button>
+        ${loginBtn}
+      </div>
+      <p class="hint" style="margin:10px 0 0">${a.login
+        ? esc(a.loginHint || 'Après l’install, « Se connecter » lance la commande CLI officielle dans une fenêtre tmux.')
+        : 'Lance la commande officielle dans une nouvelle fenêtre tmux. Tu peux suivre la sortie ici, puis relancer l’agent.'}</p>
+      ${a.login ? `<div class="cmd" style="margin-top:8px">${esc(a.login)}</div>` : ''}
+    </div>`, (el) => {
+    $('#do-install', el).addEventListener('click', () => installAgent(a));
+    $('#do-login', el)?.addEventListener('click', () => loginAgent(a));
+  });
+}
+async function installAgent(a) {
+  closeSheet();
+  try {
+    const session = newSession || srv.session || 'main';
+    const r = await api(srv, 'new', {
+      session, name: `install-${a.bin}`, command: a.install, cwd: srv.cwd || undefined,
+    });
+    toast(`Installation de ${a.label} lancée`, true);
+    openWindow({
+      session: r.session, window: r.window, name: `install-${a.bin}`, command: 'bash',
+    });
+  } catch (e) { toast(e.message); }
+}
+async function loginAgent(a) {
+  if (!a?.login) {
+    toast(a?.loginHint || 'Pas de login CLI pour cet agent');
+    return;
+  }
+  closeSheet();
+  try {
+    const session = newSession || srv.session || 'main';
+    const r = await api(srv, 'new', {
+      session, name: `auth-${a.bin}`, command: a.login, cwd: srv.cwd || undefined,
+    });
+    const win = {
+      session: r.session, window: r.window, name: `auth-${a.bin}`,
+      command: a.login.split(/\s+/)[0],
+    };
+    // Interactive CLI login belongs in the TUI, not the native chat view.
+    state.modes[`${srv.id}|${win.session}:${win.window}`] = 'term';
+    save();
+    toast(`Login ${a.label} — suis les étapes dans le terminal`, true);
+    openWindow(win);
+  } catch (e) { toast(e.message); }
+}
+$('#v-windows .scroll')?.addEventListener('scroll', syncFabWide, { passive: true });
+$('#new-window').addEventListener('focus', () => { $('#new-window').classList.add('wide'); });
+$('#new-window').addEventListener('blur', () => { if (!$('#new-window').classList.contains('picking')) syncFabWide(); });
+$('#new-window').addEventListener('click', async () => {
+  const fab = $('#new-window');
+  fab.classList.add('wide', 'picking');
+  try {
+    const sessions = [...new Set([srv.session || 'main', ...lastWindows.map((w) => w.session)])];
+    newSession = newSession && sessions.includes(newSession) ? newSession : sessions[0];
+    await refreshAgents();
+    const ready = AGENT_CATALOG.filter((a) => agentPresent(a.bin));
+    const missing = AGENT_CATALOG.filter((a) => !agentPresent(a.bin));
+    const tools = TOOL_PRESETS.filter((t) => !t.bin || agentPresent(t.bin) || t.bin === null);
+    const readyHtml = ready.length
+      ? `<div class="presets">${ready.map((a) => `
+        <button type="button" class="preset ${esc(a.cls)}" data-run="${esc(a.bin)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>${esc(a.cmd)}</small></button>`).join('')}
+        ${tools.map((t) => `
+        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}"><span class="glyph">${esc(t.glyph)}</span>${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}
+      </div>`
+      : `<p class="hint">Aucun agent détecté sur ce serveur. Installe-en un ci-dessous (commande officielle).</p>
+        <div class="presets">${tools.map((t) => `
+        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}"><span class="glyph">${esc(t.glyph)}</span>${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}</div>`;
+    const missHtml = missing.length ? `<details class="miss-agents">
+      <summary>Pas encore installés <small>${missing.length}</small></summary>
+      <div class="presets">${missing.map((a) => `
+        <button type="button" class="preset miss ${esc(a.cls)}" data-install="${esc(a.id)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>installer</small></button>`).join('')}
+      </div>
+      <p class="hint">Chaque fiche ouvre la doc officielle et la commande recommandée par l’éditeur.</p>
+    </details>` : '';
+    const authAgents = AGENT_CATALOG.filter((a) => a.login && (agentPresent(a.bin) || missing.some((m) => m.id === a.id)));
+    const authHtml = authAgents.length ? `<details class="miss-agents">
+      <summary>Connexion CLI <small>${authAgents.length}</small></summary>
+      <div class="presets">${authAgents.map((a) => `
+        <button type="button" class="preset ${esc(a.cls)}" data-login="${esc(a.id)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>${esc(a.login)}</small></button>`).join('')}
+      </div>
+      <p class="hint">Lance le login officiel de chaque agent dans une fenêtre tmux (navigateur / code / clé selon l’outil).</p>
+    </details>` : '';
+    openSheet(`
+      <h3>Nouvelle fenêtre</h3>
+      <div class="sub">Disponibles sur ce serveur</div>
+      ${readyHtml}
+      ${authHtml}
+      ${missHtml}
+      <div class="sub">Session</div>
+      <div class="chips"></div>
+      <form class="inline" id="newsess"><input name="s" placeholder="nouvelle session…" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="ghost">Créer</button></form>
+      <div class="sub">Autre commande</div>
+      <form class="inline" id="custom" style="margin-top:0"><input name="cmd" placeholder="ex : npm run dev" autocapitalize="off" autocorrect="off" spellcheck="false"><button>Lancer</button></form>`,
+    (el) => {
+      const drawChips = () => {
+        $('.chips', el).innerHTML = sessions.map((s) => `<button type="button" data-s="${esc(s)}" class="${s === newSession ? 'on' : ''}">${esc(s)}</button>`).join('');
+        $$('.chips button', el).forEach((b) => (b.onclick = () => { newSession = b.dataset.s; drawChips(); }));
+      };
+      drawChips();
+      el.addEventListener('click', (e) => {
+        const inst = e.target.closest('[data-install]');
+        if (inst) {
+          const a = AGENT_CATALOG.find((x) => x.id === inst.dataset.install);
+          if (a) openInstallSheet(a);
+          return;
+        }
+        const login = e.target.closest('[data-login]');
+        if (login) {
+          const a = AGENT_CATALOG.find((x) => x.id === login.dataset.login);
+          if (a) loginAgent(a);
+          return;
+        }
+        const run = e.target.closest('[data-run]');
+        if (!run) return;
+        if (run.dataset.cmd != null && run.dataset.label) {
+          createWindow(run.dataset.label.toLowerCase(), run.dataset.cmd);
+          return;
+        }
+        const a = AGENT_CATALOG.find((x) => x.bin === run.dataset.run);
+        if (a) createWindow(a.label.toLowerCase(), a.cmd);
+      });
+      $('#custom', el).addEventListener('submit', (e) => {
+        e.preventDefault(); const cmd = e.target.cmd.value.trim(); if (cmd) createWindow(cmd.split(/\s+/)[0].split('/').pop(), cmd);
+      });
+      $('#newsess', el).addEventListener('submit', (e) => {
+        e.preventDefault(); const s = e.target.s.value.trim().replace(/[.:]/g, '-'); if (!s) return;
+        if (!sessions.includes(s)) sessions.push(s);
+        newSession = s; drawChips(); e.target.reset();
+      });
+    });
+  } catch (e) {
+    fab.classList.remove('picking');
+    syncFabWide();
+    toast(e.message || String(e));
+  }
 });
 async function createWindow(name, cmd) {
   closeSheet();
   try {
-    const r = await api(srv, 'new', { session: newSession, name: name || 'shell', command: cmd, cwd: srv.cwd || undefined });
+    const session = newSession || srv.session || 'main';
+    const r = await api(srv, 'new', { session, name: name || 'shell', command: cmd, cwd: srv.cwd || undefined });
     openWindow({ session: r.session, window: r.window, name: name || 'shell', command: cmd ? cmd.split(/\s+/)[0] : 'shell' });
   } catch (e) { toast(e.message); }
 }
@@ -1297,6 +2234,10 @@ const winKey = () => `${srv.id}|${W.win.session}:${W.win.window}`;
 
 // ---------- app profiles: keys and native views per program ----------
 // k: tmux key names (send-keys), t: literal text, cmd: text + Enter, term: switch to Terminal (interactive pickers).
+const AGENT_CTX = [
+  { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+  { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' },
+];
 const PROFILES = [
   { id: 'pi', match: /^pi$/i, chat: 'pi', stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'compacter', h: '/compact', cmd: '/compact' },
@@ -1307,9 +2248,32 @@ const PROFILES = [
     { l: '◀ buffer', h: 'alt+←', k: 'M-Left' }, { l: 'buffer ▶', h: 'alt+→', k: 'M-Right' }, { l: 'activité', h: 'alt+a', k: 'M-a' },
     { l: '⇞ haut', h: 'pgup', k: 'PageUp' }, { l: '⇟ bas', h: 'pgdn', k: 'PageDown' }, { l: 'précédent', h: 'alt+<', k: 'M-<' },
     { l: 'liste', h: '/bar', cmd: '/bar toggle buflist' }, { l: 'pseudos', h: '/bar', cmd: '/bar toggle nicklist' }, { l: 'fermer', h: '/close', cmd: '/close' }] },
-  { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: [
-    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
-    { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'codeaf', match: /^codeaf$/i, chat: 'codeaf', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'nouveau', h: '/new', cmd: '/new' },
+    { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'senior', h: '/senior-dev', cmd: '/senior-dev' },
+    { l: 'sec', h: '/sec', cmd: '/sec' }, { l: 'review', h: '/review', cmd: '/review' },
+    { l: 'rewind', h: '/rewind', cmd: '/rewind' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' }] },
+  { id: 'claude', match: /^claude$/i, chat: 'claude', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'modèle', h: '/model', cmd: '/model', term: true }, { l: 'compact', h: '/compact', cmd: '/compact' },
+    { l: 'cost', h: '/cost', cmd: '/cost' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'codex', match: /^codex$/i, chat: 'codex', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'modèle', h: '/model', cmd: '/model', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'gemini', match: /^gemini$/i, chat: 'gemini', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'auth', h: '/auth', cmd: '/auth', term: true }, { l: 'modèle', h: '/model', cmd: '/model', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'opencode', match: /^opencode$/i, chat: 'opencode', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'modèle', h: '/models', cmd: '/models', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: AGENT_CTX },
   { id: 'shell', match: /.*/, stop: 'C-c', ctx: [
     { l: 'stop', h: '^C', k: 'C-c' }, { l: 'effacer', h: '^L', k: 'C-l' }, { l: 'historique', h: '^R', k: 'C-r' },
     { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
@@ -1385,6 +2349,9 @@ function withMods(key) {
   W.mods.clear(); drawKeys();
   return k;
 }
+function resetPiChat() {
+  W.pi = null; W.piState = 'unknown'; W.last = ''; W.pending = null; W.open = new Set();
+}
 async function press(x) {
   touched();
   if (x.mod) { W.mods.has(x.mod) ? W.mods.delete(x.mod) : W.mods.add(x.mod); return drawKeys(); }
@@ -1392,7 +2359,11 @@ async function press(x) {
   try {
     if (x.k) await api(srv, 'keys', { target: W.win, keys: [withMods(x.k)] });
     else if (x.t) await api(srv, 'send', { target: W.win, text: x.t, enter: false });
-    else if (x.cmd) await api(srv, 'send', { target: W.win, text: x.cmd, enter: true });
+    else if (x.cmd) {
+      await api(srv, 'send', { target: W.win, text: x.cmd, enter: true });
+      // /new starts a fresh jsonl — drop the old conversation so Chat doesn't stay sticky.
+      if (/^\/new\b/i.test(x.cmd)) resetPiChat();
+    }
     if (x.term && W.mode !== 'term') setMode('term');
     tick();
   } catch (err) { toast(err.message); }
@@ -1426,20 +2397,86 @@ function openMoreKeys() {
 }
 
 // ---------- window lifecycle ----------
-function openWindow(win) {
-  Object.assign(W, { win, last: '', ctxHtml: '', pi: null, piState: 'unknown', screen: null, pending: null, buffers: [], n: 0, toBottom: true });
+function orderedWindows() {
+  if (!lastWindows?.length) return [];
+  const byId = Object.fromEntries(lastWindows.map((w) => [tileId(w), w]));
+  const ordered = boardOf().order.map((id) => byId[id]).filter(Boolean);
+  for (const w of lastWindows) if (!ordered.some((x) => tileId(x) === tileId(w))) ordered.push(w);
+  return ordered;
+}
+function loadWindow(win) {
+  leaveWindow();
+  Object.assign(W, { win, last: '', ctxHtml: '', pi: null, piState: 'unknown', screen: null, termCap: null, pending: null, buffers: [], n: 0, toBottom: true, open: new Set() });
+  KBD.echo = '';
   W.profile = profileOf(win);
   try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
-  // The program's own TUI by default (it stays right whatever its version); the chat view is one tap away.
-  W.mode = state.modes[winKey()] || 'term';
-  if (W.profile.buffers) W.mode = 'term'; // WeeChat is driven from the terminal view and its buffer bar
+  // Native chat agents (pi, codeaf) open in Chat — their TUI chrome is dense on a phone.
+  // Everything else starts in Terminal; WeeChat always stays there for the buffer bar.
+  W.mode = state.modes[winKey()] || (W.profile.chat ? 'chat' : 'term');
+  if (W.profile.buffers) W.mode = 'term';
   $('#mode-seg').style.display = W.profile.buffers || W.profile.id === 'shell' ? 'none' : '';
   W.status = 'idle'; setStatus('idle');
+}
+function openWindow(win) {
+  loadWindow(win);
   go('v-window', enterWindow);
   nav[nav.length - 1].leave = leaveWindow;
 }
+/** Jump to another tmux window without going back to the board. */
+function switchWindow(win) {
+  if (!win) return;
+  if (W.win && tileId(W.win) === tileId(win) && nav[nav.length - 1]?.id === 'v-window') {
+    closeSheet();
+    return;
+  }
+  closeSheet();
+  const onWin = nav[nav.length - 1]?.id === 'v-window';
+  loadWindow(win);
+  if (onWin) enterWindow();
+  else {
+    go('v-window', enterWindow);
+    nav[nav.length - 1].leave = leaveWindow;
+  }
+}
+async function openWindowSwitcher() {
+  try {
+    const { windows } = await api(srv, 'list');
+    lastWindows = windows; lastWindows.srv = srv.id;
+    syncBoard(windows);
+  } catch { /* use last known list */ }
+  const list = orderedWindows();
+  if (!list.length) return toast('Aucune fenêtre');
+  const sessions = [];
+  for (const w of list) if (!sessions.includes(w.session)) sessions.push(w.session);
+  const cur = W.win ? tileId(W.win) : '';
+  const body = sessions.map((s) => {
+    const ws = list.filter((w) => w.session === s);
+    const rows = ws.map((w) => {
+      const [g] = glyphOf(w);
+      const id = tileId(w);
+      const on = id === cur ? ' on' : '';
+      const sub = [w.command, w.name !== displayName(w) ? w.name : ''].filter(Boolean).join(' · ');
+      return `<button type="button" class="row${on}" data-sw="${esc(id)}">
+        <span class="glyph" aria-hidden="true">${esc(g)}</span>
+        <div class="main"><b>${esc(displayName(w))}</b><small>${esc(sub || `${w.session}:${w.window}`)}</small></div>
+        ${on ? '<span class="pill working">ici</span>' : PILL[previewOf(w).status] || ''}
+      </button>`;
+    }).join('');
+    return `<div class="group-title">${esc(s)} <small>${ws.length}</small></div><div class="list menu switcher">${rows}</div>`;
+  }).join('');
+  openSheet(`<h3>Fenêtres</h3>
+    <p class="hint" style="margin-top:-6px">Touche pour y aller tout de suite — sans repasser par le tableau.</p>
+    ${body}`, (el) => {
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sw]'); if (!b) return;
+      const w = list.find((x) => tileId(x) === b.dataset.sw);
+      if (w) switchWindow(w);
+    });
+    requestAnimationFrame(() => el.querySelector('.row.on')?.scrollIntoView({ block: 'nearest' }));
+  });
+}
 function enterWindow() {
-  $('#win-name').textContent = W.win.name;
+  $('#win-name').textContent = displayName(W.win);
   setSub();
   resetTerm();
   W.mods.clear(); Object.assign(KBD, { layer: 'abc', shift: 0, queue: [] }); drawKeys();
@@ -1449,21 +2486,28 @@ function enterWindow() {
 }
 function setSub() {
   const model = W.pi?.model ? ` · ${W.pi.model}` : '';
-  $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${W.win.command || ''}${model}`;
+  const tm = W.win.name !== displayName(W.win) ? `${W.win.name} · ` : '';
+  $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${tm}${W.win.command || ''}${model}`;
 }
+$('#win-switch').addEventListener('click', () => openWindowSwitcher());
 // Refresh fast while you interact or the program is working, slowly otherwise.
+// While the on-screen keyboard is sending, back off: screen captures share the SSH/tmux
+// channel with send-keys and would make keystrokes land late or look "eaten".
+function kbBusy() { return KBD.pumping || KBD.queue.length > 0 || Date.now() - (KBD.sentAt || 0) < 70; }
 function schedule() {
   clearTimeout(W.timer);
-  const busy = Date.now() - (W.touched || 0) < 2500 || W.status === 'working';
+  const typing = kbBusy();
+  const busy = !typing && (Date.now() - (W.touched || 0) < 2500 || W.status === 'working');
   W.timer = setTimeout(async () => { await tick(); if (nav.length && nav[nav.length - 1].id === 'v-window') schedule(); },
-    document.hidden ? 2000 : busy ? 160 : srv.transport === 'demo' ? 300 : 700);
+    document.hidden ? 2000 : typing ? 180 : busy ? 120 : srv.transport === 'demo' ? 220 : 700);
 }
-const touched = () => { W.touched = Date.now(); if (W.status !== 'working') schedule(); };
+const touched = () => { W.touched = Date.now(); if (W.status !== 'working' && !kbBusy()) schedule(); };
 function setStatus(st) {
   W.status = st;
   $('#win-dot').className = `sdot ${st}`;
   $('#send').classList.toggle('stop', st === 'working' && !$('#input').value && !!W.profile.stop);
   $('#send').setAttribute('aria-label', $('#send').classList.contains('stop') ? 'Interrompre' : 'Envoyer');
+  drawSuggest();
 }
 function leaveWindow() {
   clearTimeout(W.timer);
@@ -1477,10 +2521,26 @@ function setMode(m) {
   kbApply(m === 'term' && kbWanted());
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
   $('#termwrap').style.display = m === 'term' ? '' : 'none';
-  $('#chatbox').style.display = m === 'chat' ? 'block' : 'none';
-  $('#input').placeholder = m === 'chat' ? `Message à ${W.win.name}…` : 'Commande (⏎ envoie)…';
+  // flex (not block): Safari needs a flex item here for flex-basis:0% to fill under the header.
+  $('#chatbox').style.display = m === 'chat' ? 'flex' : 'none';
+  $('#input').placeholder = m === 'chat' ? `Message à ${displayName(W.win)}…` : 'Commande (⏎ envoie)…';
+  // Chat: let iOS show QuickType / autocorrect. Term: raw keys, no "helpful" rewrites.
+  if (m === 'chat') {
+    input.setAttribute('autocapitalize', 'sentences');
+    input.setAttribute('autocorrect', 'on');
+    input.setAttribute('autocomplete', 'on');
+    input.spellcheck = true;
+  } else {
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('autocomplete', 'off');
+    input.spellcheck = false;
+  }
   W.last = ''; W.toBottom = true;
-  if (m === 'chat') drawChat();
+  if (m === 'chat') {
+    // App shortcuts + answer chips stay above the iOS keyboard.
+    drawCtx(); drawSuggest(); drawChat();
+  }
   // The terminal's size is only known once it is shown.
   else if (nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
 }
@@ -1502,27 +2562,45 @@ async function fitToPhone() {
 
 async function tick() {
   if (W.busy || document.hidden) return;
+  // Prefer keystrokes over a fresh capture; the next schedule() pass will redraw.
+  if (KBD.on && kbBusy()) return;
   W.busy = true;
+  const sentBefore = KBD.sentAt;
   try {
     W.n++;
     if (W.mode === 'term') {
       // Whole history the first time, then only the last lines (new ones are merged in).
       const c = await api(srv, 'screen', { target: W.win, tail: TV.full ? 2000 : 120 });
+      // A capture that raced with typing would paint a screen missing the latest letters.
+      if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       mergeHistory(c);
+      W.termCap = c;
+      KBD.echo = '';
       W.screen = { ...c, screen: c.screen.join('\n') };
       drawTerm(c);
       if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
-    } else if (W.profile.chat === 'pi' && W.piState !== 'missing') {
-      // Conversation from pi's session file every other tick; the visible screen gives the live state.
+    } else if (W.profile.chat && W.piState !== 'missing') {
+      // Native chat (pi / codeaf / claude / codex / gemini / opencode): session file every other tick.
       if (!W.pi || W.n % 2 === 0) {
-        const p = await api(srv, 'pi', { target: W.win });
-        W.piState = p.found ? 'ok' : 'missing';
-        if (p.found) { W.pi = p; setSub(); }
+        const p = await api(srv, W.profile.chat, { target: W.win });
+        if (p.found) {
+          if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
+          W.piState = 'ok';
+          W.pi = p;
+          setSub();
+        } else {
+          // Never keep a previous thread when the pane has no session file (e.g. after /new).
+          if (W.pi) W.last = '';
+          W.piState = 'missing';
+          W.pi = null;
+        }
       }
       W.screen = await api(srv, 'capture', { target: W.win });
+      if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
     } else {
       W.screen = await api(srv, 'capture', { target: W.win, history: 400 });
+      if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
     }
   } catch (e) {
@@ -1531,6 +2609,10 @@ async function tick() {
   } finally {
     W.busy = false;
     if (W.screen) setStatus(statusOf([W.screen.screen.replace(ANSI_RE, '')]));
+    if (KBD.on && (KBD.sentAt !== sentBefore || kbBusy())) {
+      clearTimeout(KBD.tickTimer);
+      KBD.tickTimer = setTimeout(() => { if (!kbBusy()) tick(); }, 100);
+    }
   }
 }
 
@@ -1648,6 +2730,7 @@ function mergeHistory(c) {
 
 function drawTerm(c) {
   const box = $('#termbox'), host = $('#termlines');
+  const savedLeft = box.scrollLeft; // redraws must not yank a horizontal read back to column 0
   if (c.command && c.command !== W.win.command) { W.win.command = c.command; setSub(); }
   // Font so that the pane's width fits the phone.
   const fs = Math.max(6, Math.min(14, Math.floor(((box.clientWidth - 12) / (c.width * cellRatio())) * 2) / 2));
@@ -1689,6 +2772,7 @@ function drawTerm(c) {
   while (host.children.length > keys.length) host.lastChild.remove();
   TV.keys = keys;
   if (atBottom || W.toBottom || c.alt) { box.scrollTop = box.scrollHeight; W.toBottom = false; }
+  box.scrollLeft = savedLeft;
   $('#tobottom').hidden = c.alt || box.scrollTop + box.clientHeight >= box.scrollHeight - TV.lh * 1.5;
 }
 $('#termbox').addEventListener('scroll', () => {
@@ -1780,7 +2864,6 @@ $('#termbox').addEventListener('click', (e) => {
 // Hardware keyboard (iPad, desktop) while the terminal has focus.
 const KEYMAP = { Enter: 'Enter', Backspace: 'BSpace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left',
   ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Delete: 'DC', Insert: 'IC' };
-let sendChain = Promise.resolve();
 $('#termbox').addEventListener('keydown', (e) => {
   if (e.metaKey) return;
   let key = KEYMAP[e.key] || (/^F\d{1,2}$/.test(e.key) ? e.key : null);
@@ -1792,8 +2875,11 @@ $('#termbox').addEventListener('keydown', (e) => {
   } else if (e.key.length === 1) op = W.mods.size ? { keys: [withMods(e.key)] } : { text: e.key };
   else return;
   e.preventDefault();
-  sendChain = sendChain.then(() => api(srv, op.keys ? 'keys' : 'send', { target: W.win, ...(op.keys ? { keys: op.keys } : { text: op.text, enter: false }) })
-    .then(tick).catch((err) => toast(err.message)));
+  // Same merge/pump path as the on-screen keyboard — never await a screen capture per key.
+  if (op.text != null) echoLocal(op.text);
+  else if (op.keys?.length === 1 && op.keys[0] === 'BSpace') echoBackspace();
+  else if (op.keys?.some((k) => k === 'Enter' || k === 'C-c' || k === 'Escape')) echoClear();
+  kbSend(op);
 });
 
 // ---------- WeeChat: buffer list from the buflist bar, current buffer and activity from the status bar ----------
@@ -1817,7 +2903,7 @@ const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮�
 const RULE = /^\s*[╭┌╰└]?[─━═-]{8,}[╮┐╯┘]?\s*$/;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
 const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·]\s*(Working|Thinking|Running|Generating|Esc to|Pondering)/i;
-const LAUNCH = /(?:\$|#|%|❯)\s*(pi|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
+const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
 function cleanScreen(screen, width = 80) {
   let lines = screen.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
   while (lines.length && !lines[lines.length - 1]) lines.pop();
@@ -1858,8 +2944,9 @@ function renderPi() {
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
   if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
-  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens dans pi</div>` : '';
-  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation pi</b>Écris ton premier message.</div>`;
+  const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
+  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
+  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
   for (const m of msgs) {
     if (m.role === 'user') html += `<div class="msg user">${esc(m.text)}</div>`;
     else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
@@ -1913,14 +3000,31 @@ function renderGeneric() {
 
 function drawChat() {
   let html;
-  if (W.profile.chat === 'pi' && W.pi) html = renderPi();
-  else if (W.profile.chat === 'pi' && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
-  else html = (W.profile.chat === 'pi' ? '<div class="pnote">Session pi introuvable : vue de l\'écran</div>' : '') + renderGeneric();
+  if (W.profile.chat && W.pi) html = renderPi();
+  else if (W.profile.chat && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
+  else html = (W.profile.chat ? `<div class="pnote">Session ${esc(W.profile.id)} introuvable : vue de l'écran</div>` : '') + renderGeneric();
   if (html === W.last) return;
   const box = $('#chatbox');
   const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
+  const savedTop = box.scrollTop;
+  // Polling rebuilds the DOM; keep horizontal offset inside each tool/bash/code <pre>.
+  const preX = [];
+  box.querySelectorAll('.pmsg').forEach((msg, mi) => {
+    msg.querySelectorAll('pre').forEach((pre, pi) => {
+      if (!pre.scrollLeft) return;
+      const id = pre.closest('details[data-id]')?.dataset?.id;
+      preX.push({ id, mi, pi, x: pre.scrollLeft });
+    });
+  });
   W.last = html; box.innerHTML = html;
   if (stick || W.toBottom) box.scrollTop = box.scrollHeight;
+  else box.scrollTop = savedTop;
+  for (const { id, mi, pi, x } of preX) {
+    const pre = id
+      ? box.querySelector(`details[data-id="${CSS.escape(id)}"] pre`)
+      : box.querySelectorAll('.pmsg')[mi]?.querySelectorAll('pre')[pi];
+    if (pre) pre.scrollLeft = x;
+  }
   if (W.pi || W.piState === 'missing') W.toBottom = false;
 }
 // Remember which tool outputs / thoughts are expanded across refreshes.
@@ -1938,8 +3042,51 @@ $('#dock-handle').addEventListener('click', () => {
   if (W.mode === 'term') requestAnimationFrame(() => fitToPhone().then(tick));
 });
 
+// Answer chips when the agent waits (y/n, 1/2/3…). Sit above the shortcuts / composer.
+function suggestFromScreen() {
+  if (W.status !== 'waiting' || !W.screen?.screen) return [];
+  const txt = W.screen.screen.replace(ANSI_RE, '');
+  const chips = [], seen = new Set();
+  const add = (l, payload) => {
+    const key = payload.t ?? payload.cmd ?? l;
+    if (seen.has(key)) return;
+    seen.add(key);
+    chips.push({ l, ...payload });
+  };
+  if (/\b(y\/n|yes\/no)\b|\[[Yy]\/[Nn]\]|Allow|Approve|Do you want|Continue\?/i.test(txt)) {
+    add('Oui', { t: 'y' }); add('Non', { t: 'n' });
+  }
+  const opts = [...txt.matchAll(/(?:^|\n)\s*[❯>•]?\s*(\d+)[.)]\s+([^\n]{1,40})/g)].slice(0, 6);
+  for (const m of opts) {
+    const label = m[2].replace(/\s+/g, ' ').trim();
+    if (label) add(`${m[1]} · ${label}`.slice(0, 32), { cmd: m[1] });
+  }
+  if (/Press enter|press ⏎|press return/i.test(txt)) add('Entrée', { k: 'Enter' });
+  return chips;
+}
+function drawSuggest() {
+  const el = $('#suggest');
+  if (!el) return;
+  const chips = suggestFromScreen();
+  if (!chips.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const html = chips.map((c, i) =>
+    `<button type="button" data-si="${i}" class="${i > 1 ? 'sec' : ''}">${esc(c.l)}</button>`).join('');
+  if (html === el.dataset.html) { el.hidden = false; return; }
+  el.dataset.html = html;
+  el.innerHTML = html;
+  el.hidden = false;
+  el._chips = chips;
+}
+$('#suggest').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-si]'); if (!b) return;
+  const c = $('#suggest')._chips?.[Number(b.dataset.si)];
+  if (c) press(c);
+});
+
 // ---------- input ----------
 const input = $('#input');
+input.addEventListener('focus', () => $('#v-window').classList.add('typing'));
+input.addEventListener('blur', () => $('#v-window').classList.remove('typing'));
 input.addEventListener('input', () => {
   // A sticky modifier + one typed character sends that key combination right away (e.g. ctrl then "o").
   if (W.mods.size && input.value.length === 1) {
@@ -1959,6 +3106,7 @@ $('#composer').addEventListener('submit', async (e) => {
   try {
     if (!text) return await api(srv, 'keys', { target: W.win, keys: ['Enter'] });
     if (W.mode === 'chat') {
+      if (/^\/new\b/i.test(text.trim())) resetPiChat();
       W.pending = text;
       W.sent = [...W.sent, text].slice(-50);
       try { localStorage.setItem(`tmuxpocket.sent.${winKey()}`, JSON.stringify(W.sent)); } catch {}
@@ -1973,12 +3121,33 @@ $('#composer').addEventListener('submit', async (e) => {
 // ---------- terminal keyboard: a full keyboard drawn inside the TUI, every tap is a keystroke ----------
 // On by default for pi and the other agent harnesses (they share their accessory row through PROFILES),
 // one tap away for everything else. ctrl / alt are the same sticky modifiers as the key bar.
-const KBD = { on: false, layer: 'abc', shift: 0, shiftAt: 0, queue: [], pumping: false, press: null, html: '' };
+const KBD = { on: false, layer: 'abc', shift: 0, shiftAt: 0, queue: [], pumping: false, press: null, html: '', sentAt: 0, echo: '' };
+function echoClear() { if (!KBD.echo) return; KBD.echo = ''; if (W.termCap) drawTerm(W.termCap); }
+function echoBackspace() {
+  if (KBD.echo) { KBD.echo = KBD.echo.slice(0, -1); if (W.termCap) drawTerm(applyEcho(W.termCap)); return true; }
+  return false;
+}
+function echoLocal(text) {
+  if (W.mode !== 'term' || !W.termCap || W.termCap.alt || !text) return;
+  KBD.echo += text;
+  drawTerm(applyEcho(W.termCap));
+}
+function applyEcho(c) {
+  if (!KBD.echo || !c || c.alt || !c.cursorVisible) return c;
+  const screen = c.screen.slice();
+  let [cx, cy] = c.cursor;
+  while (screen.length <= cy) screen.push('');
+  const row = screen[cy] || '';
+  const p = plain(row);
+  const at = Math.min(cx, p.length);
+  screen[cy] = p.slice(0, at) + KBD.echo + p.slice(at);
+  return { ...c, screen, cursor: [at + KBD.echo.length, cy], cursorVisible: true };
+}
 function kbPrefs() {
   if (!state.kb) state.kb = { layout: /^fr/i.test(navigator.language || '') ? 'azerty' : 'qwerty', alpha: 'glass', overlay: false, folded: false, use: {} };
   return state.kb;
 }
-const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent'].includes(W.profile.id);
+const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
 const kbPad = () => (KBD.on && !kbPrefs().overlay ? $('#tkb').offsetHeight : 0);
 
 const ACCENTS = { e: 'éèêë', a: 'àâäæ', c: 'ç', u: 'ùûü', i: 'îï', o: 'ôöœ', y: 'ÿ', n: 'ñ', "'": '’"«»', '"': '«»“”',
@@ -2026,14 +3195,21 @@ function kbApply(on) {
   $('#v-window').classList.toggle('kb-on', on);
   $('#tkb').hidden = !on;
   if (on) { input.blur(); KBD.html = ''; drawKb(); drawCtx(); } else kbRelease();
-  const h = on ? $('#tkb').offsetHeight : 0;
-  $('#termwrap').style.setProperty('--kbh', `${h}px`);
-  $('#termwrap').style.setProperty('--kbpad', `${kbPad()}px`);
+  // Remeasure after layout: first paint can report offsetHeight 0 and leave the TUI short/tall vs the keyboard.
+  const applyPad = () => {
+    const h = on ? $('#tkb').offsetHeight : 0;
+    $('#termwrap').style.setProperty('--kbh', `${h}px`);
+    $('#termwrap').style.setProperty('--kbpad', `${kbPad()}px`);
+  };
+  applyPad();
+  if (on) requestAnimationFrame(applyPad);
 }
 function kbRefit() {
   kbApply(KBD.on);
   W.toBottom = true;
-  if (W.mode === 'term' && nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
+  if (W.mode === 'term' && nav.length && nav[nav.length - 1].id === 'v-window') {
+    requestAnimationFrame(() => requestAnimationFrame(() => fitToPhone().then(tick)));
+  }
 }
 function setKb(on) {
   kbPrefs().use[W.profile.id] = on; save();
@@ -2041,28 +3217,45 @@ function setKb(on) {
 }
 $('#kb-show').addEventListener('click', () => setKb(true));
 
-// Keystrokes go out in order; letters typed faster than the network are merged into one send.
+// Keystrokes go out in order. Fast typing is merged into one send/keys call. The pump always
+// drains the queue (a second kbSend at the end of a wave must not leave letters stranded).
 function kbSend(op) {
   const last = KBD.queue[KBD.queue.length - 1];
   if (op.text != null && last?.text != null) last.text += op.text;
+  else if (op.keys && last?.keys && last.keys.length + op.keys.length <= 32) last.keys.push(...op.keys);
   else KBD.queue.push(op);
-  if (!KBD.pumping) kbPump();
+  KBD.sentAt = Date.now();
+  kbPump();
 }
 async function kbPump() {
+  if (KBD.pumping) return;
   KBD.pumping = true;
   const win = W.win;
-  while (KBD.queue.length && W.win === win) {
-    const op = KBD.queue.shift();
-    try {
-      if (op.text != null) await api(srv, 'send', { target: win, text: op.text, enter: false });
-      else await api(srv, 'keys', { target: win, keys: op.keys });
-    } catch (e) { KBD.queue = []; toast(e.message); }
+  try {
+    while (KBD.queue.length && W.win === win) {
+      const op = KBD.queue.shift();
+      try {
+        if (op.text != null) await api(srv, 'send', { target: win, text: op.text, enter: false });
+        else await api(srv, 'keys', { target: win, keys: op.keys });
+        KBD.sentAt = Date.now();
+      } catch (e) {
+        // Keep what is still queued — wiping it is what made whole words disappear after a blip.
+        toast(e.message);
+        break;
+      }
+    }
+  } finally {
+    KBD.pumping = false;
+    if (KBD.queue.length && W.win === win) kbPump();
+    else {
+      clearTimeout(KBD.tickTimer);
+      // Confirm the screen quickly after the burst; local echo already showed the keys.
+      KBD.tickTimer = setTimeout(() => { if (W.win === win && !kbBusy()) tick(); }, 40);
+    }
   }
-  KBD.pumping = false;
-  tick();
 }
 function kbCommit(x, alt) {
-  touched();
+  KBD.sentAt = Date.now();
   if (x.mod) return press(x);
   if (x.act === 'shift') {
     const now = Date.now();
@@ -2078,36 +3271,55 @@ function kbCommit(x, alt) {
     let k = x.k;
     if (shifted && k === 'Tab') k = 'BTab';
     else if (shifted && /^(Left|Right|Up|Down|Home|End)$/.test(k)) k = `S-${k}`;
+    if (k === 'BSpace') echoBackspace();
+    else if (k === 'Enter' || k === 'C-c' || k === 'Escape') echoClear();
     kbSend({ keys: [withMods(k)] }); // withMods redraws the keys
+    if (shifted === 1) drawKb();
     return;
   }
   let ch = alt || x.t;
   if (shifted) ch = ch.toUpperCase();
-  if (W.mods.size && /^[!-~ ]$/.test(ch)) kbSend({ keys: [withMods(ch === ' ' ? 'Space' : ch)] });
-  else kbSend({ text: ch });
+  if (W.mods.size && /^[!-~ ]$/.test(ch)) {
+    echoClear();
+    kbSend({ keys: [withMods(ch === ' ' ? 'Space' : ch)] });
+  } else {
+    echoLocal(ch);
+    kbSend({ text: ch });
+  }
   if (x.space && KBD.layer !== 'abc') KBD.layer = 'abc'; // like iOS: a space after numbers goes back to letters
   if (shifted === 1 || x.space) drawKb();
+  return ch;
 }
 
-// iOS-style touch: a letter is typed on release with a preview above the finger; hold it for its accents
-// and slide to pick one. Backspace and arrows act on touch and repeat while held.
+// Fire on touch (not on release): releasing was losing letters when iOS cancelled the gesture or the
+// next key's pointerdown cleared the previous press. Hold still opens accents; picking one replaces.
 const kbKeyOf = (b) => (b.dataset.a != null ? KB_ACC[Number(b.dataset.a)] : kbRows()[Number(b.dataset.r)]?.[Number(b.dataset.c)]);
-// Fills a bubble shown above a key; returns the key's and the keyboard's boxes to place it.
 function kbBubble(el, b, html) {
   el.innerHTML = html; el.hidden = false;
   return { r: b.getBoundingClientRect(), k: $('#tkb').getBoundingClientRect() };
 }
-function kbRelease() {
+function kbEndPress({ commit = false } = {}) {
   const p = KBD.press; KBD.press = null;
   if (!p) return;
   clearTimeout(p.timer);
   p.b.classList.remove('down');
   $('#tkb-pop').hidden = true; $('#tkb-alts').hidden = true;
+  if (commit && !p.done && p.key.act !== 'system') kbCommit(p.key, p.alts ? p.alts[p.sel] : undefined);
+  else if (p.alts && p.typed != null) {
+    const ch = p.alts[p.sel];
+    if (ch && ch !== p.typed) {
+      echoBackspace(); echoLocal(ch);
+      kbSend({ keys: ['BSpace'] }); kbSend({ text: ch });
+    }
+  }
 }
+const kbRelease = () => kbEndPress({ commit: false });
 function kbShowAlts(p) {
-  const base = KBD.shift ? p.key.t.toUpperCase() : p.key.t;
-  p.alts = [base, ...ACCENTS[p.key.t]].map((c) => (KBD.shift ? c.toUpperCase() : c));
-  p.sel = 1;
+  const upper = !!(p.typed && p.typed.length === 1 && p.typed !== p.typed.toLowerCase());
+  p.alts = [p.key.t, ...ACCENTS[p.key.t]].map((c) => (upper ? c.toUpperCase() : c));
+  if (p.typed) p.alts[0] = p.typed;
+  // Keep the base selected until the finger moves — it was already typed on touch.
+  p.sel = 0;
   $('#tkb-pop').hidden = true;
   const el = $('#tkb-alts');
   const { r, k } = kbBubble(el, p.b, p.alts.map((c, i) => `<span class="${i === p.sel ? 'sel' : ''}">${esc(c)}</span>`).join(''));
@@ -2120,19 +3332,25 @@ $('#tkb').addEventListener('pointerdown', (e) => {
   const b = e.target.closest('button[data-a], button[data-r]'); if (!b) return;
   e.preventDefault(); // keeps focus (hardware keyboard) where it is
   const x = kbKeyOf(b); if (!x) return;
-  kbRelease();
-  const p = KBD.press = { b, key: x, alts: null, sel: 0, done: false, timer: null };
+  // Commit any key still waiting (overlap / missed pointerup) before starting the new one.
+  kbEndPress({ commit: true });
+  const p = KBD.press = { b, key: x, alts: null, sel: 0, done: false, timer: null, typed: null };
   b.classList.add('down');
   try { b.setPointerCapture(e.pointerId); } catch {}
   if (x.act === 'system') return;
-  if (x.mod) { kbCommit(x); p.done = true; return; } // lit as soon as it's touched
+  if (x.mod) { kbCommit(x); p.done = true; return; }
   if (x.repeat) {
     kbCommit(x); p.done = true;
     const again = () => { kbCommit(x); p.timer = setTimeout(again, 70); };
     p.timer = setTimeout(again, 420);
-  } else if (x.t && !x.space) {
+    return;
+  }
+  // Letters, space, enter, tab… land immediately — waiting for pointerup is what dropped them.
+  p.typed = kbCommit(x) ?? null;
+  p.done = true;
+  if (x.t && !x.space) {
     const pop = $('#tkb-pop');
-    const { r, k } = kbBubble(pop, b, esc(KBD.shift ? x.t.toUpperCase() : x.t));
+    const { r, k } = kbBubble(pop, b, esc(p.typed || x.t));
     pop.style.left = `${r.left - k.left + r.width / 2}px`; pop.style.top = `${r.top - k.top - 4}px`;
     if (ACCENTS[x.t]) p.timer = setTimeout(() => kbShowAlts(p), 380);
   }
@@ -2142,12 +3360,8 @@ $('#tkb').addEventListener('pointermove', (e) => {
   const sel = Math.max(0, Math.min(p.alts.length - 1, Math.floor((e.clientX - p.altsLeft) / 42)));
   if (sel !== p.sel) { p.sel = sel; $$('#tkb-alts span').forEach((s, i) => s.classList.toggle('sel', i === sel)); }
 });
-$('#tkb').addEventListener('pointerup', () => {
-  const p = KBD.press; if (!p) return;
-  kbRelease();
-  if (!p.done && p.key.act !== 'system') kbCommit(p.key, p.alts ? p.alts[p.sel] : undefined);
-});
-$('#tkb').addEventListener('pointercancel', kbRelease);
+$('#tkb').addEventListener('pointerup', () => kbEndPress({ commit: false }));
+$('#tkb').addEventListener('pointercancel', () => kbEndPress({ commit: true }));
 // No native gesture on the keys (double-tap zoom, callout, text selection): iOS would cancel the tap.
 // The shortcut row keeps its horizontal scroll.
 $('#tkb').addEventListener('touchstart', (e) => { if (!e.target.closest('.keyrow, .ctx-toggle')) e.preventDefault(); }, { passive: false });
@@ -2157,15 +3371,16 @@ const kbToSystem = (e) => {
   if (!b || kbKeyOf(b)?.act !== 'system') return;
   e.preventDefault();
   setKb(false);
-  input.focus();
+  input.focus({ preventScroll: true });
 };
 $('#tkb').addEventListener('touchend', kbToSystem);
 $('#tkb').addEventListener('click', kbToSystem);
 window.addEventListener('blur', kbRelease);
 
 $('#win-menu').addEventListener('click', () => {
-  openSheet(`<h3>${esc(W.win.name)} <small style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(W.win.session)}:${W.win.window}</small></h3>
+  openSheet(`<h3>${esc(displayName(W.win))} <small style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(W.win.session)}:${W.win.window}</small></h3>
     <div class="list menu">
+      <button class="row" data-a="switch"><div class="main"><b>Changer de fenêtre</b><small>toutes les sessions · un tap</small></div></button>
       <button class="row" data-a="fit"><div class="main"><b>${srv.fit === false ? 'Adapter à l\'iPhone' : 'Ne plus adapter (taille du serveur)'}</b><small>tmux resize-window</small></div></button>
       <button class="row" data-a="keys"><div class="main"><b>Toutes les touches</b><small>lettres, F1–F12, symboles, modificateurs</small></div></button>
     </div>
@@ -2187,6 +3402,7 @@ $('#win-menu').addEventListener('click', () => {
     $$('.row', el).forEach((r) => r.addEventListener('click', async () => {
       const a = r.dataset.a;
       if (a === 'kill' && !armed(r, 'Toucher encore pour fermer')) return;
+      if (a === 'switch') { closeSheet(); setTimeout(openWindowSwitcher, 180); return; }
       closeSheet();
       if (a === 'fit') {
         srv.fit = srv.fit === false; save();
