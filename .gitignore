@@ -1,0 +1,9 @@
+node_modules/
+
+# Secrets must never be committed
+*.env
+.tmux-pocket/
+id_*
+*.pem
+*.key
+known_hosts*

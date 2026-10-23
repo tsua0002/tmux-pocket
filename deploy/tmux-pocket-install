@@ -1,0 +1,406 @@
+#!/usr/bin/env bash
+# tmux-pocket-install: every privileged operation of the tmux-pocket install, in one audited script.
+#
+# The human reviews this file, installs it root-owned as /usr/local/sbin/tmux-pocket-install (0755),
+# and allows ONLY this command in sudoers (see deploy/sudoers.tmux-pocket). The install agent then
+# needs no other root right: no sudo on sed, tee, cp, git, npm, apt or systemctl.
+#
+# Guarantees:
+# - Fixed paths and repository. Arguments are validated (domain, git ref), nothing else is accepted.
+# - Everything that runs or is configured as root (systemd units, Caddy site, env template) is embedded
+#   below, so the repository content cannot escalate: repository code only runs as `tmuxpocket`.
+# - Downloads (Node.js, Caddy) are checked against SHA-256 values written in this file.
+# - Never prints BRIDGE_TOKEN or the private key. Never touches firewall, sshd or authorized_keys.
+#
+# Usage: sudo tmux-pocket-install <command> [args]   (run `tmux-pocket-install help`)
+
+set -euo pipefail
+umask 022
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+
+REPO_URL=https://github.com/tsua0002/tmux-pocket
+APP=/opt/tmux-pocket
+NODE_DIR=/opt/tmux-pocket-node
+ENV_FILE=/etc/tmux-pocket.env
+STATE=/var/lib/tmux-pocket
+UNIT=/etc/systemd/system/tmux-pocket.service
+SITE=/etc/caddy/tmux-pocket.caddy
+CADDYFILE=/etc/caddy/Caddyfile
+CADDY_BACKUP=/etc/caddy/Caddyfile.bak-tmux-pocket
+CADDY_MARKER=/etc/caddy/.caddy-installed-by-tmux-pocket
+IMPORT_LINE="import $SITE"
+DEPS=(git curl ca-certificates xz-utils iproute2)
+
+NODE_V=v24.21.0
+declare -A NODE_SHA=(
+  [x64]=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+  [arm64]=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
+)
+CADDY_V=2.11.7
+declare -A CADDY_SHA=(
+  [amd64]=727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b
+  [arm64]=d8fc6d179a5d283028a472a5618564f6ad8a86fed513e64f032b3b0b7cc45e42
+)
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "run it with sudo"; }
+
+valid_domain() { [[ $1 == localhost || $1 =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; }
+valid_ref() { [[ $1 =~ ^[0-9a-f]{7,40}$ || $1 =~ ^(master|v[0-9]+(\.[0-9]+){0,2})$ ]]; }
+
+machine() {
+  case "$(uname -m)" in
+    x86_64) NODE_ARCH=x64 CADDY_ARCH=amd64 ;;
+    aarch64) NODE_ARCH=arm64 CADDY_ARCH=arm64 ;;
+    *) die "unsupported architecture $(uname -m)" ;;
+  esac
+}
+
+# Download over HTTPS and refuse anything whose SHA-256 differs from the value pinned above.
+fetch_verified() {
+  local url=$1 sha=$2 dest=$3
+  curl -fsSL --proto '=https' --tlsv1.2 -o "$dest" "$url" || die "DOWNLOAD FAILED: $url"
+  echo "$sha  $dest" | sha256sum -c --quiet - >/dev/null 2>&1 || { rm -f "$dest"; die "CHECKSUM MISMATCH: $url"; }
+}
+
+# ---------------------------------------------------------------- embedded files (root-relevant)
+
+unit_file() {
+  cat <<'EOF'
+# Written by tmux-pocket-install. Runs the bridge as `tmuxpocket`, sandboxed.
+[Unit]
+Description=tmux-pocket bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tmuxpocket
+Group=tmuxpocket
+WorkingDirectory=/opt/tmux-pocket/bridge
+Environment=HOST=127.0.0.1 PORT=8022 STATE_DIR=/var/lib/tmux-pocket
+EnvironmentFile=/etc/tmux-pocket.env
+ExecStart=/opt/tmux-pocket-node/bin/node server.js
+Restart=on-failure
+StateDirectory=tmux-pocket
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+env_template() {
+  cat <<'EOF'
+# Written by tmux-pocket-install. Mode 600, owner root. Never commit or share this file.
+BRIDGE_TOKEN=__TOKEN__
+# 0 = only SSH to your servers; 1 = also allow tmux on this machine without SSH
+ALLOW_LOCAL=0
+EOF
+}
+
+site_file() { # $1 = domain
+  cat <<EOF
+# Written by tmux-pocket-install. HTTPS site for tmux-pocket; Caddy handles certificates and HTTP->HTTPS.
+$1 {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8022
+}
+EOF
+}
+
+caddy_unit() { # Caddy's official unit, binary in /usr/local/bin (only when Caddy came from the release archive)
+  cat <<'EOF'
+# Written by tmux-pocket-install (official Caddy unit, binary in /usr/local/bin).
+[Unit]
+Description=Caddy
+Documentation=https://caddyserver.com/docs/
+After=network.target network-online.target
+Requires=network-online.target
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# ---------------------------------------------------------------- commands
+
+cmd_preflight() {
+  local stop=()
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  say "os: $ID $VERSION_ID"
+  case "$ID" in
+    ubuntu) dpkg --compare-versions "$VERSION_ID" ge 20.04 || stop+=("Ubuntu older than 20.04") ;;
+    debian) dpkg --compare-versions "$VERSION_ID" ge 12 || stop+=("Debian older than 12") ;;
+    *) stop+=("unsupported OS $ID") ;;
+  esac
+  say "arch: $(uname -m)"
+  [[ $(uname -m) == x86_64 || $(uname -m) == aarch64 ]] || stop+=("unsupported architecture")
+  local glibc; glibc=$(getconf GNU_LIBC_VERSION | awk '{print $2}')
+  say "glibc: $glibc"
+  dpkg --compare-versions "$glibc" ge 2.28 || stop+=("glibc older than 2.28")
+  if [ -d /run/systemd/system ]; then say "systemd: yes"; else say "systemd: no"; stop+=("systemd is not running"); fi
+  if command -v ss >/dev/null; then
+    local l
+    for port in 80 443 8022; do
+      l=$(ss -Hltnp "sport = :$port" 2>/dev/null | { grep -o 'users:(("[^"]*"' || true; } | cut -d'"' -f2 | sort -u | tr '\n' ' ')
+      say "port $port: ${l:-free}"
+      if [ "$port" = 8022 ]; then
+        [[ -z $l || $l == "node " ]] || stop+=("port 8022 used by $l")
+      else
+        [[ -z $l || $l == "caddy " ]] || stop+=("port $port used by $l")
+      fi
+    done
+  else
+    say "ports: not checked (ss missing; the deps step installs iproute2, then run preflight again)"
+  fi
+  if command -v caddy >/dev/null; then say "caddy: present $(caddy version | awk '{print $1}')"; else say "caddy: absent"; fi
+  if [ ${#stop[@]} -eq 0 ]; then say "preflight: OK"; else say "preflight: STOP (${stop[*]})"; exit 2; fi
+}
+
+cmd_deps() {
+  local missing=()
+  for p in "${DEPS[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
+  if [ ${#missing[@]} -eq 0 ]; then say "deps: OK (already present)"; return; fi
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}" >/dev/null
+  say "deps: OK (installed ${missing[*]})"
+}
+
+cmd_runtime() {
+  machine
+  local t=$WORK
+  if [ "$("$NODE_DIR/bin/node" -v 2>/dev/null)" = "$NODE_V" ]; then
+    say "node: $NODE_V already installed"
+  else
+    local f="node-$NODE_V-linux-$NODE_ARCH.tar.xz"
+    fetch_verified "https://nodejs.org/dist/$NODE_V/$f" "${NODE_SHA[$NODE_ARCH]}" "$t/$f"
+    rm -rf "$NODE_DIR.new" && mkdir -p "$NODE_DIR.new"
+    tar -xJf "$t/$f" -C "$NODE_DIR.new" --strip-components=1 --no-same-owner
+    rm -rf "$NODE_DIR" && mv "$NODE_DIR.new" "$NODE_DIR"
+    say "node: $NODE_V installed (checksum OK)"
+  fi
+  if command -v caddy >/dev/null; then
+    say "caddy: kept existing $(command -v caddy) ($(caddy version | awk '{print $1}'))"
+  elif apt-cache policy caddy 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy >/dev/null
+    say "caddy: installed from apt ($(caddy version | awk '{print $1}'))"
+  else
+    local f="caddy_${CADDY_V}_linux_${CADDY_ARCH}.tar.gz"
+    fetch_verified "https://github.com/caddyserver/caddy/releases/download/v$CADDY_V/$f" "${CADDY_SHA[$CADDY_ARCH]}" "$t/$f"
+    tar -xzf "$t/$f" -C "$t" caddy
+    install -m 755 -o root -g root "$t/caddy" /usr/local/bin/caddy
+    getent group caddy >/dev/null || groupadd --system caddy
+    id caddy >/dev/null 2>&1 || useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin caddy
+    mkdir -p /etc/caddy && touch "$CADDYFILE" "$CADDY_MARKER"
+    caddy_unit > /etc/systemd/system/caddy.service && chmod 644 /etc/systemd/system/caddy.service
+    systemctl daemon-reload
+    say "caddy: v$CADDY_V installed from the official release (checksum OK)"
+  fi
+  say "runtime: OK"
+}
+
+cmd_code() { # $1 = git ref
+  local ref=${1:-}; valid_ref "$ref" || die "invalid ref '$ref' (use a commit hash, master, or a vX.Y.Z tag)"
+  [ -x "$NODE_DIR/bin/node" ] || die "run 'runtime' first"
+  id tmuxpocket >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin tmuxpocket
+  if [ ! -d "$APP/.git" ]; then git clone --quiet "$REPO_URL" "$APP"; fi
+  [ "$(git -C "$APP" remote get-url origin)" = "$REPO_URL" ] || die "$APP is not a clone of $REPO_URL"
+  git -C "$APP" fetch --quiet --tags origin
+  local rev
+  rev=$(git -C "$APP" rev-parse --verify --quiet "origin/$ref^{commit}" || git -C "$APP" rev-parse --verify --quiet "$ref^{commit}") \
+    || die "ref '$ref' not found in $REPO_URL"
+  git -C "$APP" checkout --quiet --force --detach "$rev"
+  # Dependencies are fetched by root with install scripts disabled: no package code runs here.
+  (cd "$APP/bridge" && PATH="$NODE_DIR/bin:$PATH" npm ci --omit=dev --ignore-scripts --no-audit --no-fund --update-notifier=false --loglevel=error >/dev/null)
+  chown -R root:root "$APP" && chmod -R go-w "$APP"
+  say "code: OK ($rev)"
+}
+
+write_token() { # writes a new env file atomically, without the token ever appearing in argv or output
+  local tmp; tmp=$(umask 077 && mktemp /etc/.tmux-pocket.env.XXXXXX)
+  TOKEN=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n') \
+    awk 'BEGIN { t = ENVIRON["TOKEN"] } { sub(/__TOKEN__/, t); print }' <(env_template) > "$tmp"
+  chown root:root "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$ENV_FILE"
+}
+
+check_secrets() {
+  [ "$(stat -c '%a %U' "$ENV_FILE")" = "600 root" ] || die "$ENV_FILE must be 600 root"
+  [ "$(grep -c '^BRIDGE_TOKEN=[0-9a-f]\{64\}$' "$ENV_FILE")" = 1 ] || die "$ENV_FILE has no valid token"
+}
+
+cmd_secrets() {
+  if [ -f "$ENV_FILE" ]; then say "secrets: keeping existing $ENV_FILE"; else write_token; fi
+  check_secrets
+  say "secrets: OK (600 root, token set, not displayed)"
+}
+
+wait_healthy() {
+  local _
+  for _ in $(seq 1 20); do
+    curl -fs --noproxy '*' http://127.0.0.1:8022/health >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  journalctl -u tmux-pocket -n 20 --no-pager >&2 || true
+  die "bridge did not answer on 127.0.0.1:8022"
+}
+
+cmd_service() {
+  if [ ! -f "$APP/bridge/server.js" ] || [ ! -f "$ENV_FILE" ]; then die "run 'code' and 'secrets' first"; fi
+  unit_file > "$UNIT" && chmod 644 "$UNIT"
+  systemctl daemon-reload
+  systemctl enable --quiet tmux-pocket
+  systemctl restart tmux-pocket
+  wait_healthy
+  [ "$(stat -c '%a %U' "$STATE")" = "700 tmuxpocket" ] || die "$STATE must be 700 tmuxpocket"
+  [ "$(stat -c '%a %U' "$STATE/id_ed25519")" = "600 tmuxpocket" ] || die "bridge key must be 600 tmuxpocket"
+  say "service: OK (active, listening on 127.0.0.1:8022, key 600 tmuxpocket)"
+}
+
+cmd_site() { # $1 = domain
+  local domain=${1:-}; valid_domain "$domain" || die "invalid domain '$domain'"
+  command -v caddy >/dev/null || die "run 'runtime' first"
+  mkdir -p /etc/caddy && touch "$CADDYFILE"
+  [ -f "$CADDY_BACKUP" ] || cp -p "$CADDYFILE" "$CADDY_BACKUP"
+  local prev=$WORK/Caddyfile.prev; cp -p "$CADDYFILE" "$prev"
+  if [ -f "$SITE" ]; then cp -p "$SITE" "$WORK/site.prev"; fi
+  site_file "$domain" > "$SITE" && chmod 644 "$SITE"
+  local body mode
+  body=$(grep -v '^[[:space:]]*#' "$CADDYFILE" | tr -d ' \t\n' || true)
+  if [ -z "$body" ] || [ "$body" = ':80{root*/usr/share/caddyfile_server}' ]; then
+    echo "$IMPORT_LINE" > "$CADDYFILE"; mode="Caddyfile was empty or the package placeholder, now only imports tmux-pocket"
+  elif ! grep -qxF "$IMPORT_LINE" "$CADDYFILE"; then
+    echo "$IMPORT_LINE" >> "$CADDYFILE"; mode="appended the import line, other sites kept"
+  else
+    mode="import line already present"
+  fi
+  if ! caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>"$prev.err"; then
+    cp -p "$prev" "$CADDYFILE"
+    if [ -f "$WORK/site.prev" ]; then cp -p "$WORK/site.prev" "$SITE"; else rm -f "$SITE"; fi
+    die "Caddy rejected the configuration; previous Caddy files restored, nothing reloaded: $(tail -1 "$prev.err")"
+  fi
+  systemctl enable --quiet caddy
+  systemctl reload-or-restart caddy
+  say "site: OK ($domain; $mode)"
+}
+
+cmd_status() {
+  say "tmux-pocket: $(systemctl is-active tmux-pocket || true), caddy: $(systemctl is-active caddy || true)"
+  say "code: $(git -C "$APP" rev-parse HEAD 2>/dev/null || echo none)"
+  say "health: $(curl -fs --noproxy '*' http://127.0.0.1:8022/health 2>/dev/null || echo unreachable)"
+  stat -c 'perms: %a %U %n' "$ENV_FILE" "$STATE" "$STATE/id_ed25519" 2>/dev/null || true
+  journalctl -u tmux-pocket -n 15 --no-pager 2>/dev/null || true
+}
+
+cmd_pubkey() { cat "$STATE/id_ed25519.pub"; }
+
+cmd_rotate_token() {
+  [ -f "$ENV_FILE" ] || die "not installed"
+  local allow; allow=$(grep '^ALLOW_LOCAL=' "$ENV_FILE" || echo ALLOW_LOCAL=0)
+  write_token
+  sed -i "s/^ALLOW_LOCAL=.*/$allow/" "$ENV_FILE"
+  check_secrets
+  systemctl restart tmux-pocket && wait_healthy
+  say "rotate-token: OK (new token written, every session logged out, token not displayed)"
+}
+
+cmd_update() { cmd_code "${1:-}"; cmd_service; }
+
+cmd_uninstall() { # [--remove-caddy]
+  systemctl disable --now --quiet tmux-pocket 2>/dev/null || true
+  rm -f "$UNIT" && systemctl daemon-reload
+  if [ -f "$CADDYFILE" ]; then
+    sed -i "\\#^${IMPORT_LINE}\$#d" "$CADDYFILE"
+    [ -s "$CADDYFILE" ] || { [ -f "$CADDY_BACKUP" ] && cp -p "$CADDY_BACKUP" "$CADDYFILE"; } || true
+  fi
+  rm -f "$SITE"
+  systemctl reload caddy 2>/dev/null || say "caddy: no site left to serve"
+  rm -rf "$APP" "$NODE_DIR" "$STATE" "$ENV_FILE"
+  id tmuxpocket >/dev/null 2>&1 && userdel tmuxpocket
+  if [ "${1:-}" = --remove-caddy ]; then
+    if [ -f "$CADDY_MARKER" ]; then
+      systemctl disable --now --quiet caddy 2>/dev/null || true
+      rm -f /etc/systemd/system/caddy.service /usr/local/bin/caddy "$CADDY_MARKER" && systemctl daemon-reload
+      id caddy >/dev/null 2>&1 && userdel caddy
+      say "caddy: removed (it had been installed by tmux-pocket-install)"
+    else
+      say "caddy: kept (not installed by tmux-pocket-install)"
+    fi
+  fi
+  say "uninstall: OK (remove the tmux-pocket@ line from authorized_keys on your servers)"
+}
+
+cmd_print_files() { # shows what would be written as root, for review; no root needed
+  local domain=${1:-pocket.example.com}
+  say "===== $UNIT"; unit_file
+  say "===== $ENV_FILE (token generated at install, never shown)"; env_template
+  say "===== $SITE"; site_file "$domain"
+  say "===== /etc/systemd/system/caddy.service (only if Caddy is installed from the release archive)"; caddy_unit
+}
+
+usage() {
+  cat <<'EOF'
+Usage: sudo tmux-pocket-install <command> [args]
+
+Install, in order (each prints "<step>: OK" or ERROR and stops):
+  preflight            checks OS, arch, glibc, systemd, ports 80/443/8022 (changes nothing)
+  deps                 apt-installs git curl ca-certificates xz-utils iproute2 if missing
+  runtime              Node.js v24.21.0 in /opt/tmux-pocket-node; Caddy if missing (checksums pinned)
+  code <ref>           clone/checkout tmux-pocket at <ref> into /opt/tmux-pocket, install dependencies
+  secrets              create /etc/tmux-pocket.env (600 root) with a random token, never displayed
+  service              install and start the sandboxed systemd service, check it answers
+  site <domain>        add the HTTPS site to Caddy (validated, previous config restored on error)
+
+Operate:
+  status | pubkey | update <ref> | rotate-token | uninstall [--remove-caddy]
+  print-files [domain] shows every file written as root (no sudo needed)
+EOF
+}
+
+main() {
+  local cmd=${1:-help}; shift || true
+  case "$cmd" in
+    help | -h | --help) usage ;;
+    print-files) cmd_print_files "$@" ;;
+    preflight | deps | runtime | code | secrets | service | site | status | pubkey | update | rotate-token | uninstall)
+      need_root; "cmd_${cmd//-/_}" "$@" ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "$@"

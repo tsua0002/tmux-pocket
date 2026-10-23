@@ -1,0 +1,13 @@
+# /etc/sudoers.d/tmux-pocket
+#
+# Lets DEPLOY_USER (the account your install agent uses) run ONE command as root: the audited
+# installer. No shell, no sed/tee/cp/git/npm/apt/systemctl, no other command.
+# The installer validates its own arguments (domain, git ref) and refuses everything else.
+#
+# Requirements for this to be safe:
+# - /usr/local/sbin/tmux-pocket-install is owned by root and not writable by DEPLOY_USER (0755 root:root).
+# - Install this file with: sudo visudo -cf <file> && sudo install -m 440 -o root -g root <file> /etc/sudoers.d/tmux-pocket
+# - Remove it when the install is done if you don't want the agent to update or uninstall later.
+
+Defaults!/usr/local/sbin/tmux-pocket-install env_reset, secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/tmux-pocket-install
