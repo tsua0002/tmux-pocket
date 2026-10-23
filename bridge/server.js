@@ -192,8 +192,11 @@ function pickPiSession(out) {
   });
   if (!files.length) return null;
   const started = head && head[2] ? +head[1] - +head[2] : 0;
+  // Sessions created after this pi process started (±10s). Prefer newest *created*
+  // so /new (fresh jsonl) wins over an older file that still gets occasional mtime bumps.
   const own = files.filter((f) => started && f.created >= started - 10);
-  return (own.length ? own : files).sort((a, b) => b.mtime - a.mtime)[0];
+  const pool = own.length ? own : files;
+  return pool.sort((a, b) => (b.created - a.created) || (b.mtime - a.mtime))[0];
 }
 
 const piCache = new Map(); // conn|file -> { offset, entries, order, header }
@@ -409,6 +412,90 @@ const ops = {
     return { ok: true };
   },
 
+  // Rename a window (tmux rename-window). Does not change the pocket display label.
+  async rename(c, { target: t, name }) {
+    const n = String(name ?? '').trim();
+    if (!n) throw new Error('empty name');
+    const r = await tmux(c, `rename-window -t ${target(t)} ${q(n)}`);
+    if (r.code !== 0) throw new Error(r.stderr.trim() || 'rename-window failed');
+    return { ok: true, name: n };
+  },
+
+  // Rename a session (tmux rename-session). Window indices stay; the session name in targets changes.
+  async renameSession(c, { session, name }) {
+    const from = String(session ?? '').trim();
+    const n = String(name ?? '').trim();
+    if (!from || !n) throw new Error('empty name');
+    if (n.includes(':') || n.includes('.')) throw new Error('session name cannot contain : or .');
+    const r = await tmux(c, `rename-session -t ${q(from)} ${q(n)}`);
+    if (r.code !== 0) throw new Error(r.stderr.trim() || 'rename-session failed');
+    return { ok: true, session: n };
+  },
+
+  // Which coding-agent CLIs are installed. Non-interactive SSH skips most of .bashrc
+  // (nvm early-return), so we load version managers explicitly and probe known dirs.
+  async agents(c, { bins } = {}) {
+    const list = (Array.isArray(bins) ? bins : [])
+      .map((b) => String(b || '').trim())
+      .filter((b) => /^[A-Za-z0-9._+-]+$/.test(b))
+      .slice(0, 32);
+    if (!list.length) return { agents: {} };
+    const probes = list.map((b) => `probe ${b}`).join('\n');
+    const body = `
+set +e
+export PATH="$HOME/.local/bin:$HOME/.codeaf/bin:$HOME/.pi/bin:$HOME/.pi/agent/bin:$HOME/.claude/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+for d in "$HOME/.nvm/versions/node"/*/bin; do [ -d "$d" ] && PATH="$d:$PATH"; done
+if [ -x "$HOME/.fnm/fnm" ]; then eval "$("$HOME/.fnm/fnm" env)" >/dev/null 2>&1; fi
+if [ -x "$HOME/.local/share/fnm/fnm" ]; then eval "$("$HOME/.local/share/fnm/fnm" env)" >/dev/null 2>&1; fi
+for d in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do [ -d "$d" ] && PATH="$d:$PATH"; done
+[ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"
+[ -s "$HOME/.asdf/asdf.sh" ] && . "$HOME/.asdf/asdf.sh" >/dev/null 2>&1
+[ -d "$HOME/.bun/bin" ] && PATH="$HOME/.bun/bin:$PATH"
+if command -v npm >/dev/null 2>&1; then
+  gb=$(npm bin -g 2>/dev/null)
+  [ -z "$gb" ] && gb=$(npm prefix -g 2>/dev/null)/bin
+  [ -d "$gb" ] && PATH="$gb:$PATH"
+fi
+probe() {
+  b="$1"; p=$(command -v "$b" 2>/dev/null || true)
+  if [ -z "$p" ]; then
+    for d in "$HOME/.codeaf/bin" "$HOME/.local/bin" "$HOME/.pi/bin" "$HOME/.pi/agent/bin" \\
+             "$HOME/.claude/bin" "$HOME/bin" /usr/local/bin /opt/homebrew/bin; do
+      [ -x "$d/$b" ] && { p="$d/$b"; break; }
+    done
+  fi
+  if [ -z "$p" ]; then
+    for f in "$HOME/.nvm/versions/node"/*/bin/"$b" \\
+             "$HOME/.local/share/fnm/node-versions"/*/installation/bin/"$b" \\
+             "$HOME/.volta/bin/$b"; do
+      [ -x "$f" ] && { p="$f"; break; }
+    done
+  fi
+  if [ -z "$p" ] && command -v pgrep >/dev/null 2>&1 && pgrep -x "$b" >/dev/null 2>&1; then
+    p="(running)"
+  fi
+  # Official pi installer / npm leave state under ~/.pi even when PATH is incomplete over SSH.
+  if [ -z "$p" ] && [ "$b" = pi ] && [ -d "$HOME/.pi/agent" -o -x "$HOME/.pi/bin/pi" ]; then
+    p="~/.pi"
+  fi
+  if [ -n "$p" ]; then printf 'present\\t%s\\t%s\\n' "$b" "$p"
+  else printf 'missing\\t%s\\n' "$b"; fi
+}
+${probes}
+`;
+    const r = await run(c, `bash -lc ${q(body)}`);
+    const agents = {};
+    for (const line of r.stdout.split('\n')) {
+      const [st, bin, p] = line.split('\t');
+      if (!bin) continue;
+      agents[bin] = st === 'present' ? { present: true, path: p || bin } : { present: false };
+    }
+    for (const b of list) if (!agents[b]) agents[b] = { present: false };
+    return { agents };
+  },
+
   // Native view of a pi (https://pi.dev) conversation: reads pi's own session file instead of
   // scraping the screen. Only bytes appended since the last call are transferred.
   async pi(c, { target: t }) {
@@ -541,4 +628,4 @@ if (require.main === module) {
   const { public: pub } = getBridgeKey();
   server.listen(PORT, HOST, () => console.log(`tmux-pocket bridge on http://${HOST}:${PORT}\nPublic key: ${pub}`));
 }
-module.exports = { ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk };
+module.exports = { ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk, pickPiSession };

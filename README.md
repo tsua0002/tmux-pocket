@@ -16,8 +16,9 @@ An iPhone-first manager for remote **tmux** sessions, with a **native chat view*
 <td width="34%"><img src="docs/demo.gif" alt="Two taps to start pi, then chat with it"></td>
 <td>
 
-**Live dashboard:** every tmux window shows the last lines of its screen and what it's doing: *working* (pulsing),
-*waiting for you* (a question or confirmation), or idle. You see where your agents are without opening anything.
+**Live dashboard:** windows are grouped by tmux session, with custom labels, colours, and preview sizes. Tap opens,
+long-press edits the local label and can rename the tmux window or session; swipe left deletes with confirmation.
+Light or dark app chrome is selectable. A pulse strip shows what's *working* or *waiting*; chips launch a preset.
 
 **Two taps to start an agent:** tap ＋ New window, then **pi**. The window is created on the server, the command
 starts and the window opens.
@@ -66,7 +67,8 @@ iPhone (web app / PWA) ──HTTP JSON──▶ bridge (Node + ssh2) ──SSH�
 
 It's plain tmux on your server. The app adds no daemon or agent wrapper there.
 
-- **Window list**: `tmux ls`, one row per window, grouped by session and refreshed every 3 s. Agent windows get a badge.
+- **Dashboard**: `tmux ls` plus live previews, arranged as a customizable board (order, colours, preview size, display
+  names). Refreshed every 3 s. tmux session/window names are unchanged.
 - **Terminal**: the app polls `capture-pane -e` and renders the lines as HTML, with no terminal library. It never attaches
   as a tmux client, so your desktop client keeps its size.
 - **Scrolling**: for regular programs (a shell, pi in its default mode) the tmux history is loaded once, then only the new
@@ -160,8 +162,13 @@ Bridge tests run against a real tmux: `cd bridge && npm test`.
 - [x] Live window previews and agent status; real TUI with native scrolling, swipe-to-wheel with inertia, tap-to-click
 - [x] Tested against pi 1.4 (fullscreen by default) on a real model
 - [x] Keyboard inside the terminal for pi and the other agent TUIs (shared accessory row)
+- [x] Dashboard board: reorder, colours, preview sizes, custom labels (tmux names untouched)
+- [ ] Dashboard zones / multi-server overview; ensure sessions exist for a chosen layout
+- [x] Fast window switcher from inside a window (tap the title)
+- [x] Chat dock: shortcuts + answer chips stay above the iOS keyboard
+- [x] Server-side agent detection; missing agents show official docs + install (CodeAF first)
 - [ ] Per-agent keyboard rows: Claude Code, then Codex, Gemini CLI, opencode (their own shortcuts and prompts)
-- [ ] Answer chips when an agent waits for you (1 / 2 / 3, y / n), for every agent at once
+- [x] Answer chips when an agent waits for you (1 / 2 / 3, y / n)
 - [ ] Native pickers for pi (`/model`, `/resume`, `/tree`) instead of switching to the terminal
 - [ ] Native conversation for claude and codex (their session files)
 - [ ] Native iOS app: [Capacitor](https://capacitorjs.com) around `web/`, plus a Swift SSH plugin

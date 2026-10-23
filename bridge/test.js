@@ -5,7 +5,7 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 process.env.STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-state-'));
-const { ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk } = require('./server');
+const { ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk, pickPiSession } = require('./server');
 
 const conn = { transport: 'local', tmuxPath: `tmux -L pocket-test-${process.pid}` };
 const session = "it's a test";
@@ -120,6 +120,53 @@ test('new window, list, send, capture, keys, resize, kill', async () => {
 
   await ops.kill(conn, { target: w2 });
   assert.strictEqual((await ops.list(conn)).windows.length, 1);
+});
+
+test('rename window and session', async () => {
+  const w = await ops.new(conn, { session: 'ren-src', name: 'old', command: '' });
+  await ops.rename(conn, { target: w, name: 'new-win' });
+  assert.strictEqual((await ops.list(conn)).windows.find((x) => x.session === 'ren-src' && x.window === w.window).name, 'new-win');
+  await ops.renameSession(conn, { session: 'ren-src', name: 'ren-dst' });
+  const listed = await ops.list(conn);
+  assert.ok(listed.windows.some((x) => x.session === 'ren-dst' && x.name === 'new-win'));
+  assert.ok(!listed.windows.some((x) => x.session === 'ren-src'));
+  await ops.kill(conn, { target: { session: 'ren-dst', window: w.window } });
+});
+
+test('agents probes which CLIs are on PATH', async () => {
+  const { agents } = await ops.agents(conn, { bins: ['bash', 'definitely-not-an-agent-xyz', 'codeaf', 'pi'] });
+  assert.strictEqual(agents.bash.present, true);
+  assert.ok(agents.bash.path);
+  assert.strictEqual(agents['definitely-not-an-agent-xyz'].present, false);
+  assert.ok('codeaf' in agents);
+  assert.ok('pi' in agents);
+});
+
+test('pickPiSession prefers the newest created file after /new', () => {
+  const now = 1_700_000_000;
+  const out = [
+    `now ${now} age 120`,
+    // Older session still touched (mtime newer) — must NOT win after /new.
+    `f ${now - 5} 900 /home/u/.pi/agent/sessions/--tmp--/2023-11-14T10-00-00-000Z_old.jsonl`,
+    `f ${now - 40} 40 /home/u/.pi/agent/sessions/--tmp--/2023-11-14T10-01-40-000Z_new.jsonl`,
+  ].join('\n');
+  const picked = pickPiSession(out);
+  assert.ok(picked, 'should pick a session');
+  assert.match(picked.path, /_new\.jsonl$/);
+});
+
+test('agents detects pi via ~/.pi/agent when PATH is incomplete', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-pi-'));
+  fs.mkdirSync(path.join(home, '.pi', 'agent'), { recursive: true });
+  const prev = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const { agents } = await ops.agents({ transport: 'local', tmuxPath: conn.tmuxPath }, { bins: ['pi'] });
+    assert.strictEqual(agents.pi.present, true, 'pi should be detected via ~/.pi/agent');
+  } finally {
+    process.env.HOME = prev;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('text and keys ending in ";" or "\\;" reach the pane intact', async () => {
