@@ -88,6 +88,8 @@ function verifyHost(id, key) {
 
 // ---------- shell helpers ----------
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+// tmux reads an argument ending in ";" as a command separator, and drops one backslash before a final ";".
+const tmuxArg = (s) => q(String(s).endsWith(';') ? `${String(s).slice(0, -1)}\\;` : s);
 const target = (t) => q(`${t.session}:${t.window}`);
 
 // ---------- transports ----------
@@ -370,7 +372,7 @@ const ops = {
 
   // Literal text, optionally followed by Enter.
   async send(c, { target: t, text, enter = true }) {
-    let cmd = `send-keys -t ${target(t)} -l -- ${q(text)}`;
+    let cmd = `send-keys -t ${target(t)} -l -- ${tmuxArg(text)}`;
     if (enter) cmd += ` \\; send-keys -t ${target(t)} Enter`;
     const r = await tmux(c, cmd);
     if (r.code !== 0) throw new Error(r.stderr.trim());
@@ -382,7 +384,7 @@ const ops = {
   async keys(c, { target: t, keys }) {
     const safe = (Array.isArray(keys) ? keys : []).filter((k) => KEY_RE.test(k)).slice(0, 32);
     if (!safe.length) throw new Error('no valid key');
-    const r = await tmux(c, `send-keys -t ${target(t)} ${safe.map(q).join(' ')}`);
+    const r = await tmux(c, `send-keys -t ${target(t)} ${safe.map(tmuxArg).join(' ')}`);
     if (r.code !== 0) throw new Error(r.stderr.trim());
     return { ok: true };
   },

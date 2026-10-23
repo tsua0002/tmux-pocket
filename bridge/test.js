@@ -121,3 +121,14 @@ test('new window, list, send, capture, keys, resize, kill', async () => {
   await ops.kill(conn, { target: w2 });
   assert.strictEqual((await ops.list(conn)).windows.length, 1);
 });
+
+test('text and keys ending in ";" or "\\;" reach the pane intact', async () => {
+  const w = await ops.new(conn, { session, name: 'semi', command: 'cat' });
+  await new Promise((r) => setTimeout(r, 300));
+  for (const text of [';', 'a;', '\\;', 'b\\', ' ']) await ops.send(conn, { target: w, text, enter: false });
+  await ops.keys(conn, { target: w, keys: [';', 'z'] });
+  await new Promise((r) => setTimeout(r, 300));
+  const cap = await ops.capture(conn, { target: w });
+  assert.ok(cap.screen.includes(';a;\\;b\\ ;z'), cap.screen);
+  await ops.kill(conn, { target: w });
+});
