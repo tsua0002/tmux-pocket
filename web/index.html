@@ -1688,7 +1688,9 @@ function syncBoard(windows) {
           'main:1': { title: 'CodeAF', size: 'm', color: 'mint' },
           'main:2': { title: 'Agent pi', size: 'm' },
           'main:3': { title: 'Claude', size: 'm' },
-          'main:4': { title: 'Charge', size: 'm' },
+          'main:4': { title: 'Codex', size: 'm' },
+          'main:5': { title: 'Gemini', size: 'm' },
+          'main:6': { title: 'OpenCode', size: 'm' },
           'infra:0': { title: 'Logs API', size: 'xl' },
           'infra:1': { title: 'IRC', size: 'm' },
           'infra:2': { title: 'Deploy', size: 'm' },
@@ -1696,6 +1698,9 @@ function syncBoard(windows) {
         if (demo) Object.assign(tile, demo);
       }
       b.tiles[id] = tile; dirty = true;
+    } else if (srv.id === 'demo' && id === 'main:4' && b.tiles[id].title === 'Charge') {
+      // Older demo seed used a bad label for the Codex window.
+      b.tiles[id].title = 'Codex'; dirty = true;
     }
   }
   if (dirty) save();
