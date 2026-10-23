@@ -138,28 +138,139 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
-async function run(c, cmd) {
+// Output is collected as bytes and decoded once, so multi-byte characters split across
+// chunks stay intact. { raw: true } returns stdout as a Buffer.
+async function run(c, cmd, { raw = false } = {}) {
+  const done = (code, out, err) => ({ code, stdout: raw ? out : out.toString('utf8'), stderr: err.toString('utf8') });
   if (c.transport === 'local') {
     if (!ALLOW_LOCAL) throw new Error('local transport disabled');
     return new Promise((resolve) => {
-      execFile('/bin/sh', ['-lc', cmd], { maxBuffer: 8 << 20 }, (err, stdout, stderr) =>
-        resolve({ code: err ? err.code || 1 : 0, stdout, stderr }));
+      execFile('/bin/sh', ['-lc', cmd], { maxBuffer: 32 << 20, encoding: 'buffer' }, (err, stdout, stderr) =>
+        resolve(done(err ? err.code || 1 : 0, stdout, stderr)));
     });
   }
   const client = await sshConnect(c);
   return new Promise((resolve, reject) => {
     client.exec(cmd, (err, stream) => {
       if (err) return reject(err);
-      let stdout = '', stderr = '';
+      const out = [], errs = [];
       stream
-        .on('close', (code) => resolve({ code: code ?? 0, stdout, stderr }))
-        .on('data', (d) => { stdout += d; })
-        .stderr.on('data', (d) => { stderr += d; });
+        .on('close', (code) => resolve(done(code ?? 0, Buffer.concat(out), Buffer.concat(errs))))
+        .on('data', (d) => out.push(d))
+        .stderr.on('data', (d) => errs.push(d));
     });
   });
 }
 
 const tmux = (c, args) => run(c, `${c.tmuxPath || 'tmux'} ${args}`);
+
+// ---------- pi sessions ----------
+// pi stores sessions in ~/.pi/agent/sessions/--<cwd with / \\ : replaced by ->--/<time>_<id>.jsonl.
+// The pane's pi process start time tells which session it created; a resumed session is the
+// most recently written one.
+function piLocateScript(c, t) {
+  const tm = c.tmuxPath || 'tmux';
+  return [
+    `pp=$(${tm} display -p -t ${target(t)} '#{pane_pid}') || exit 1`,
+    `cwd=$(${tm} display -p -t ${target(t)} '#{pane_current_path}')`,
+    'pid=$(pgrep -P "$pp" -x pi | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" node | head -1); [ -n "$pid" ] || pid=$pp',
+    'echo "now $(date +%s) age $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d \' \')"',
+    'dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions/--$(printf %s "$cwd" | sed \'s#^/##; s#[/\\\\:]#-#g\')--"',
+    'ls -t "$dir"/*.jsonl 2>/dev/null | head -20 | while IFS= read -r f; do echo "f $(stat -c \'%Y %s\' "$f") $f"; done',
+    'true',
+  ].join('\n');
+}
+
+function pickPiSession(out) {
+  const head = /^now (\d+) age (\d*)/m.exec(out);
+  const files = [...out.matchAll(/^f (\d+) (\d+) (.+)$/gm)].map(([, mtime, size, p]) => {
+    const m = /(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)-(\d+)Z_[^/]*\.jsonl$/.exec(p);
+    const created = m ? Date.parse(`${m[1]}:${m[2]}:${m[3]}.${m[4]}Z`) / 1000 : 0;
+    return { path: p, mtime: +mtime, size: +size, created };
+  });
+  if (!files.length) return null;
+  const started = head && head[2] ? +head[1] - +head[2] : 0;
+  const own = files.filter((f) => started && f.created >= started - 10);
+  return (own.length ? own : files).sort((a, b) => b.mtime - a.mtime)[0];
+}
+
+const piCache = new Map(); // conn|file -> { offset, entries, order, header }
+const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s || '');
+const textOf = (content) => typeof content === 'string' ? content
+  : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+function piIngest(cache, line) {
+  if (!line.trim()) return;
+  let e;
+  try { e = JSON.parse(line); } catch { return; }
+  if (e.type === 'session') { cache.header = { cwd: e.cwd, id: e.id }; return; }
+  if (!e.id) return;
+  // Keep only what the phone shows, so long sessions stay small in memory.
+  const slim = { type: e.type, id: e.id, parentId: e.parentId, timestamp: e.timestamp };
+  const m = e.message;
+  if (e.type === 'message' && m) {
+    if (m.role === 'system') return void (slim.skip = true, cache.entries.set(e.id, slim), cache.order.push(e.id));
+    slim.role = m.role;
+    if (m.role === 'user') slim.text = textOf(m.content);
+    if (m.role === 'assistant') {
+      const blocks = m.content || [];
+      slim.text = textOf(blocks);
+      slim.thinking = clip(blocks.filter((b) => b.type === 'thinking').map((b) => b.thinking || '').join('\n'), 4000);
+      slim.tools = blocks.filter((b) => b.type === 'toolCall')
+        .map((b) => ({ id: b.id, name: b.name, args: clip(JSON.stringify(b.arguments ?? {}), 400) }));
+      slim.model = m.model;
+      if (m.stopReason === 'error' || m.errorMessage) slim.error = m.errorMessage || 'error';
+      if (m.stopReason === 'aborted') slim.aborted = true;
+    }
+    if (m.role === 'toolResult') { slim.toolCallId = m.toolCallId; slim.output = clip(textOf(m.content), 3000); slim.isError = !!m.isError; }
+    if (m.role === 'bashExecution') { slim.role = 'bash'; slim.text = m.command; slim.output = clip(m.output, 3000); }
+  } else if (e.type === 'custom_message' && e.display) {
+    slim.role = 'note'; slim.text = clip(textOf(e.content), 2000);
+  } else if (e.type === 'compaction') {
+    slim.role = 'note'; slim.text = 'Conversation compacted';
+  } else if (e.type === 'model_change') {
+    slim.model = e.modelId;
+  } else if (e.type === 'session_info') {
+    slim.name = e.name;
+  }
+  cache.entries.set(e.id, slim);
+  cache.order.push(e.id);
+}
+
+// The active branch is the path from the last appended entry back to the root.
+function piConversation(cache) {
+  const path = [];
+  const seen = new Set();
+  for (let id = cache.order[cache.order.length - 1]; id && !seen.has(id); id = cache.entries.get(id)?.parentId) {
+    seen.add(id);
+    const e = cache.entries.get(id);
+    if (!e) break;
+    path.push(e);
+  }
+  path.reverse();
+  let model = null, name = null;
+  for (const e of cache.order.map((id) => cache.entries.get(id))) if (e.name) name = e.name;
+  const results = new Map();
+  for (const e of path) if (e.role === 'toolResult') results.set(e.toolCallId, e);
+  const messages = [];
+  for (const e of path) {
+    if (e.model) model = e.model;
+    if (e.skip || !e.role || e.role === 'toolResult') continue;
+    const msg = { id: e.id, role: e.role, text: e.text, ts: e.timestamp };
+    if (e.role === 'assistant') {
+      if (e.thinking) msg.thinking = e.thinking;
+      if (e.error) msg.error = e.error;
+      if (e.aborted) msg.aborted = true;
+      msg.tools = e.tools.map((t) => ({ ...t, output: results.get(t.id)?.output, isError: results.get(t.id)?.isError, done: results.has(t.id) }));
+    }
+    if (e.role === 'bash') msg.output = e.output;
+    messages.push(msg);
+  }
+  return { model, name, total: messages.length, messages: messages.slice(-200) };
+}
+
+const SCREEN_MARK = '@@tmux-pocket-screen@@';
+const KEY_RE = /^(?:[CMS]-){0,3}(?:[A-Za-z][A-Za-z0-9]{0,10}|[0-9]|[!-~])$/;
 
 // ---------- tmux operations ----------
 // tmux escapes control chars in -F output, so use a printable separator and keep
@@ -196,6 +307,67 @@ const ops = {
     return { width: +w, height: +h, cursor: [+cx, +cy], command, screen: r.stdout.slice(nl + 1) };
   },
 
+  // Window list: the last non-empty lines of every window, in one command, for live previews.
+  async previews(c, { lines = 8 } = {}) {
+    const tm = c.tmuxPath || 'tmux';
+    const n = Math.max(1, Math.min(Math.floor(Number(lines) || 8), 30));
+    const r = await run(c, `${tm} list-windows -a -F '#{session_name}:#{window_index}' 2>/dev/null | while IFS= read -r t; do `
+      + `echo "${SCREEN_MARK}$t"; ${tm} capture-pane -p -J -t "$t" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n ${n}; done; true`);
+    const previews = {};
+    let cur = null;
+    for (const line of r.stdout.split('\n')) {
+      if (line.startsWith(SCREEN_MARK)) previews[cur = line.slice(SCREEN_MARK.length)] = [];
+      else if (cur && line) previews[cur].push(line);
+    }
+    return { previews };
+  },
+
+  // Terminal view: the visible screen plus the last `tail` lines of tmux history (none on the alternate
+  // screen), with what the phone needs to scroll natively or forward the mouse to the app.
+  async screen(c, { target: t, tail = 0 }) {
+    const tm = c.tmuxPath || 'tmux', T = target(t);
+    const n = Math.max(0, Math.min(Math.floor(Number(tail) || 0), 5000));
+    const r = await run(c, [
+      `info=$(${tm} display -p -t ${T} '#{pane_width} #{pane_height} #{cursor_x} #{cursor_y} #{alternate_on} #{mouse_any_flag} #{mouse_sgr_flag} #{history_size} #{cursor_flag} #{pane_current_command}') || exit 1`,
+      'echo "$info"',
+      `set -- $info; n=${n}; [ "$5" = 1 ] && n=0; [ "$n" -gt "$8" ] && n=$8`,
+      `if [ "$n" -gt 0 ]; then ${tm} capture-pane -p -e -S -"$n" -E -1 -t ${T}; fi`,
+      `echo '${SCREEN_MARK}'`,
+      `${tm} capture-pane -p -e -t ${T}`,
+    ].join('\n'));
+    if (r.code !== 0) throw new Error(r.stderr.trim() || 'capture failed');
+    const nl = r.stdout.indexOf('\n');
+    const [w, h, cx, cy, alt, any, sgr, hs, cur, ...cmd] = r.stdout.slice(0, nl).split(' ');
+    const rest = r.stdout.slice(nl + 1);
+    const at = rest.indexOf(`${SCREEN_MARK}\n`);
+    const lines = (x) => (x ? x.replace(/\n$/, '').split('\n') : []);
+    return {
+      width: +w, height: +h, cursor: [+cx, +cy], cursorVisible: cur === '1', alt: alt === '1',
+      mouse: { any: any === '1', sgr: sgr === '1' }, historySize: +hs, command: cmd.join(' '),
+      history: lines(rest.slice(0, at)), screen: lines(rest.slice(at + SCREEN_MARK.length + 1)),
+    };
+  },
+
+  // Mouse events for apps that track the mouse (pi fullscreen, WeeChat, htop...): wheel and click,
+  // written to the pane as xterm SGR (or legacy) mouse sequences. Coordinates are 1-based cells.
+  async mouse(c, { target: t, events, sgr = true }) {
+    const cell = (v) => Math.max(1, Math.min(Math.floor(Number(v) || 1), 1000));
+    const bytes = [];
+    for (const e of (Array.isArray(events) ? events : []).slice(0, 60)) {
+      const x = cell(e.x), y = cell(e.y);
+      const seq = e.t === 'wheel' ? [[e.up ? 64 : 65, 'M']] : e.t === 'click' ? [[0, 'M'], [0, 'm']] : [];
+      for (const [b, f] of seq) {
+        if (!sgr && (x > 223 || y > 223)) continue;
+        const s = sgr ? `\x1b[<${b};${x};${y}${f}` : `\x1b[M${String.fromCharCode(32 + (f === 'm' ? 3 : b), 32 + x, 32 + y)}`;
+        for (const byte of Buffer.from(s, 'latin1')) bytes.push(byte.toString(16).padStart(2, '0'));
+      }
+    }
+    if (!bytes.length) return { ok: true };
+    const r = await tmux(c, `send-keys -t ${target(t)} -H ${bytes.join(' ')}`);
+    if (r.code !== 0) throw new Error(r.stderr.trim());
+    return { ok: true };
+  },
+
   // Literal text, optionally followed by Enter.
   async send(c, { target: t, text, enter = true }) {
     let cmd = `send-keys -t ${target(t)} -l -- ${q(text)}`;
@@ -206,9 +378,11 @@ const ops = {
   },
 
   // Named keys: Escape, Tab, C-c, Up, Down, BTab, Enter...
+  // Named keys with optional modifiers (C- M- S-): Escape, C-c, M-Left, S-Up, C-M-x, M-<, F5...
   async keys(c, { target: t, keys }) {
-    const safe = keys.filter((k) => /^[A-Za-z0-9\-]+$/.test(k));
-    const r = await tmux(c, `send-keys -t ${target(t)} ${safe.join(' ')}`);
+    const safe = (Array.isArray(keys) ? keys : []).filter((k) => KEY_RE.test(k)).slice(0, 32);
+    if (!safe.length) throw new Error('no valid key');
+    const r = await tmux(c, `send-keys -t ${target(t)} ${safe.map(q).join(' ')}`);
     if (r.code !== 0) throw new Error(r.stderr.trim());
     return { ok: true };
   },
@@ -231,6 +405,29 @@ const ops = {
     const r = await tmux(c, `kill-window -t ${target(t)}`);
     if (r.code !== 0) throw new Error(r.stderr.trim());
     return { ok: true };
+  },
+
+  // Native view of a pi (https://pi.dev) conversation: reads pi's own session file instead of
+  // scraping the screen. Only bytes appended since the last call are transferred.
+  async pi(c, { target: t }) {
+    const r = await run(c, piLocateScript(c, t));
+    if (r.code !== 0) throw new Error(r.stderr.trim() || 'pi session lookup failed');
+    const file = pickPiSession(r.stdout);
+    if (!file) return { found: false };
+    const key = `${connKey(c)}|${c.transport || 'ssh'}|${file.path}`;
+    let cache = piCache.get(key);
+    if (!cache || file.size < cache.offset) cache = { offset: 0, entries: new Map(), order: [], header: null };
+    if (file.size > cache.offset) {
+      const want = Math.min(file.size - cache.offset, 16 << 20);
+      const d = await run(c, `tail -c +${cache.offset + 1} ${q(file.path)} | head -c ${want}`, { raw: true });
+      const end = d.stdout.lastIndexOf(0x0a);
+      if (end >= 0) {
+        for (const line of d.stdout.subarray(0, end).toString('utf8').split('\n')) piIngest(cache, line);
+        cache.offset += end + 1;
+      }
+    }
+    piCache.set(key, cache);
+    return { found: true, file: path.basename(file.path), ...piConversation(cache) };
   },
 
   // Fit the window to the phone (tmux >= 2.9). cols=0 restores automatic sizing.

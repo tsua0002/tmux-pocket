@@ -178,11 +178,20 @@ cmd_preflight() {
   if command -v ss >/dev/null; then
     local l
     for port in 80 443 8022; do
-      l=$(ss -Hltnp "sport = :$port" 2>/dev/null | { grep -o 'users:(("[^"]*"' || true; } | cut -d'"' -f2 | sort -u | tr '\n' ' ')
-      say "port $port: ${l:-free}"
+      local listeners; listeners=$(ss -Hltnp "sport = :$port" 2>/dev/null || true)
+      l=$(printf '%s\n' "$listeners" | { grep -o 'users:(("[^"]*"' || true; } | cut -d'"' -f2 | sort -u | tr '\n' ' ')
+      # In use but no visible process (another namespace or user): unknown, never "free".
+      if [ -n "$listeners" ] && [ -z "$l" ]; then l="an unknown process "; fi
       if [ "$port" = 8022 ]; then
-        [[ -z $l || $l == "node " ]] || stop+=("port 8022 used by $l")
+        # Only our own bridge may already hold it (re-run or update): same PID as the service's main process.
+        local pid main
+        pid=$(printf '%s\n' "$listeners" | { grep -o 'pid=[0-9]*' || true; } | head -1 | cut -d= -f2)
+        main=$(systemctl show -p MainPID --value tmux-pocket 2>/dev/null || true)
+        if [[ -n $l && -n $pid && $pid == "$main" ]]; then say "port 8022: tmux-pocket (already installed)"; continue; fi
+        say "port $port: ${l:-free}"
+        [[ -z $l ]] || stop+=("port 8022 used by $l")
       else
+        say "port $port: ${l:-free}"
         [[ -z $l || $l == "caddy " ]] || stop+=("port $port used by $l")
       fi
     done
