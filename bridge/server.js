@@ -18,6 +18,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const agentChat = require('./agent-chat');
 
 const PORT = Number(process.env.PORT || 8022);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -201,6 +202,7 @@ function pickPiSession(out) {
 
 const piCache = new Map(); // conn|file -> { offset, entries, order, header }
 const codeafCache = new Map(); // conn|file -> { offset, entries, order, header, name, seq }
+const agentCache = new Map(); // conn|kind|file -> unified agent-chat cache
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s || '');
 const textOf = (content) => typeof content === 'string' ? content
   : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
@@ -665,6 +667,24 @@ ${probes}
     return { found: true, file: label, ...codeafConversation(cache) };
   },
 
+  // Unified native chat for Claude Code, Codex, Gemini CLI, OpenCode (same message contract as pi/codeaf).
+  async agentChat(c, { target: t, kind }) {
+    const k = String(kind || '').toLowerCase();
+    if (!agentChat.KINDS.includes(k)) throw new Error(`unknown agent kind: ${kind}`);
+    return agentChat.readChat(k, {
+      c, t, run, q, connKey, tmuxPath: c.tmuxPath, target, caches: agentCache,
+    });
+  },
+  async claude(c, args) { return ops.agentChat(c, { ...args, kind: 'claude' }); },
+  async codex(c, args) { return ops.agentChat(c, { ...args, kind: 'codex' }); },
+  async gemini(c, args) { return ops.agentChat(c, { ...args, kind: 'gemini' }); },
+  async opencode(c, args) { return ops.agentChat(c, { ...args, kind: 'opencode' }); },
+
+  // CLI login hints for each agent (no remote I/O — the phone runs the command in a tmux window).
+  async agentAuth() {
+    return { auth: agentChat.AUTH, kinds: agentChat.KINDS };
+  },
+
   // Fit the window to the phone (tmux >= 2.9). cols=0 restores automatic sizing.
   async resize(c, { target: t, cols, rows }) {
     const cmd = cols
@@ -777,4 +797,5 @@ if (require.main === module) {
 module.exports = {
   ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk,
   pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
+  agentChat,
 };

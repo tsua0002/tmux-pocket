@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
-<meta name="tmux-pocket-ui" content="codeaf-chat-1">
+<meta name="tmux-pocket-ui" content="native-agents-1">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
 /* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
@@ -522,8 +522,8 @@ html[data-appearance="light"] .status.ok { background: rgba(6,78,59,.94); color:
 <div id="stage">
   <aside id="aside">
     <h1>tmux<span>·</span>pocket</h1>
-    <p>Tes sessions tmux et tes agents de code (pi, claude, codex…) dans ta poche : aperçu en direct de chaque fenêtre, TUI rendu fidèlement avec un défilement natif, chat pi natif, WeeChat au doigt.</p>
-    <p><b>Démo</b> : fonctionne sans serveur. Tape <code>pi</code> ou <code>tmux ls</code> dans le shell.</p>
+    <p>Tes sessions tmux et tes agents de code (pi, Claude, Codex, Gemini, OpenCode…) dans ta poche : aperçu en direct, TUI fidèle, chat natif (commandes, réflexion, outils) et login CLI depuis l’app.</p>
+    <p><b>Démo</b> : fonctionne sans serveur. Tape <code>pi</code>, <code>claude</code> ou <code>tmux ls</code> dans le shell.</p>
     <p>Serveur réel : <code>cd bridge && npm i && npm start</code>, puis <code>http://127.0.0.1:8022</code>.</p>
   </aside>
   <div id="app">
@@ -680,30 +680,37 @@ const AGENT_CATALOG = [
   { id: 'codeaf', bin: 'codeaf', label: 'CodeAF', glyph: '◈', cls: 'agent', cmd: 'codeaf',
     install: 'curl -fsSL https://agentfield.ai/get/codeaf | bash',
     docs: 'https://agentfield.ai/docs/codeaf',
+    login: 'codeaf', loginHint: 'CodeAF demande le modèle / la clé au premier lancement',
     blurb: 'Usine d’agents dans le terminal (AgentField).' },
   { id: 'pi', bin: 'pi', label: 'pi', glyph: 'π', cls: 'pi', cmd: 'pi',
     install: 'curl -fsSL https://pi.dev/install.sh | sh',
     docs: 'https://pi.dev/docs/latest/quickstart',
+    login: 'pi', loginHint: 'pi configure le modèle au premier lancement (/model)',
     blurb: 'Agent de code open source (pi.dev).' },
   { id: 'claude', bin: 'claude', label: 'Claude', glyph: '✻', cls: 'agent', cmd: 'claude',
     install: 'curl -fsSL https://claude.ai/install.sh | bash',
     docs: 'https://docs.anthropic.com/en/docs/claude-code',
+    login: 'claude auth login', loginHint: 'Connexion Anthropic (Claude Code)',
     blurb: 'Claude Code — installateur officiel Anthropic.' },
   { id: 'codex', bin: 'codex', label: 'Codex', glyph: '◎', cls: 'agent', cmd: 'codex',
     install: 'npm install -g @openai/codex',
     docs: 'https://github.com/openai/codex',
+    login: 'codex login', loginHint: 'Connexion OpenAI (Codex CLI)',
     blurb: 'Codex CLI (OpenAI).' },
   { id: 'gemini', bin: 'gemini', label: 'Gemini', glyph: '✦', cls: 'agent', cmd: 'gemini',
     install: 'npm install -g @google/gemini-cli',
     docs: 'https://github.com/google-gemini/gemini-cli',
+    login: 'gemini', loginHint: 'Au premier lancement, Gemini ouvre /auth (Google)',
     blurb: 'Gemini CLI (Google).' },
   { id: 'opencode', bin: 'opencode', label: 'OpenCode', glyph: '◆', cls: 'agent', cmd: 'opencode',
     install: 'curl -fsSL https://opencode.ai/v2/install | bash',
     docs: 'https://opencode.ai/',
+    login: 'opencode auth login', loginHint: 'Connexion OpenCode (fournisseur)',
     blurb: 'OpenCode — agent open source.' },
   { id: 'aider', bin: 'aider', label: 'Aider', glyph: '♦', cls: 'agent', cmd: 'aider',
     install: 'python -m pip install aider-install && aider-install',
     docs: 'https://aider.chat/docs/install.html',
+    login: null, loginHint: 'Aider utilise OPENAI_API_KEY / ANTHROPIC_API_KEY dans l’environnement',
     blurb: 'Aider — pair programming dans le terminal.' },
 ];
 const TOOL_PRESETS = [
@@ -866,7 +873,7 @@ const Sim = (() => {
   }
   const shellPrompt = () => `${fg(76)}thomas@demo${R}:${fg(39)}~/code${R}$ `;
 
-  const presentBins = new Set(['codeaf', 'pi', 'claude', 'htop', 'bash', 'weechat']);
+  const presentBins = new Set(['codeaf', 'pi', 'claude', 'codex', 'gemini', 'opencode', 'htop', 'bash', 'weechat']);
   mk('main', 'shell', 'shell', { lines: [shellPrompt() + 'git pull', 'Already up to date.', shellPrompt() + 'ls', `${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`] });
   mk('main', 'codeaf', 'agent', { style: 'pi', cmd: 'codeaf', items: [
     { role: 'user', text: 'Prépare un /senior-dev sur tmux-pocket' },
@@ -879,10 +886,25 @@ const Sim = (() => {
     { role: 'tool', text: 'read src/tmux.ts' },
     { role: 'agent', text: "C'est fait : `listWindows()` appelle `tmux list-windows -a -F …` et renvoie session, index, nom et commande." },
   ] });
-  mk('main', 'claude', 'agent', { style: 'claude', items: [
+  mk('main', 'claude', 'agent', { style: 'claude', cmd: 'claude', items: [
     { role: 'user', text: 'Résume les changements du jour' },
     { role: 'tool', text: 'Bash(git log --since=today --oneline)', sub: '5 commits' },
-    { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), capture des écrans avec couleurs, vue chat pour les agents, et création de fenêtre en deux taps.' },
+    { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), chat natif Claude/Codex/Gemini/OpenCode, et login CLI depuis l’app.' },
+  ] });
+  mk('main', 'codex', 'agent', { style: 'pi', cmd: 'codex', items: [
+    { role: 'user', text: 'Explique le bridge tmux-pocket' },
+    { role: 'agent', text: 'Le bridge expose une API HTTP qui pilote tmux via SSH : list, capture, send, et lecture des transcripts agents.',
+      thinking: 'Rester court, pointer vers ops.*',
+      tools: [{ name: 'shell', args: '{"command":"ls bridge"}', output: 'agent-chat.js  server.js  test.js', done: true }] },
+  ] });
+  mk('main', 'gemini', 'agent', { style: 'pi', cmd: 'gemini', items: [
+    { role: 'user', text: 'Quels agents ont un chat natif ?' },
+    { role: 'agent', text: 'pi, CodeAF, Claude Code, Codex, Gemini CLI et OpenCode partagent le même contrat messages (texte, réflexion, outils).' },
+  ] });
+  mk('main', 'opencode', 'agent', { style: 'pi', cmd: 'opencode', items: [
+    { role: 'user', text: 'Ouvre une session OpenCode' },
+    { role: 'agent', text: 'Session prête. Le chat lit storage_v2 / SQLite côté bridge.',
+      tools: [{ name: 'read', args: '{"path":"bridge/agent-chat.js"}', output: 'module.exports = { readChat, AUTH, KINDS }', done: true }] },
   ] });
   mk('main', 'htop', 'htop');
   mk('infra', 'api-logs', 'logs');
@@ -1063,6 +1085,15 @@ const Sim = (() => {
         return;
       }
     }
+    // Simulated CLI login for catalog agents (e.g. "claude auth login").
+    for (const a of AGENT_CATALOG) {
+      if (a.login && (c === a.login || c.startsWith(`${a.login} `))) {
+        presentBins.add(a.bin);
+        w.lines.push(`${fg(76)}✓${R} ${a.label} : login simulé`);
+        w.lines.push(`${D}${a.loginHint || 'Compte prêt.'}${R}`);
+        return;
+      }
+    }
     const m = c.match(AGENTS);
     if (m) {
       presentBins.add(m[1]);
@@ -1168,7 +1199,7 @@ const Sim = (() => {
       wins.filter((w) => w.session === session).forEach((w) => { w.session = n; });
       return { ok: true, session: n };
     },
-    // Same shape as the bridge's pi / codeaf ops. The reply being streamed isn't in the file yet.
+    // Same shape as the bridge's pi / codeaf / agent-chat ops. The reply being streamed isn't in the file yet.
     _nativeChat(w) {
       if (w.kind !== 'agent') return { found: false };
       const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
@@ -1183,17 +1214,27 @@ const Sim = (() => {
       });
       return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
     },
-    pi: ({ target }) => {
+    _chatKind(kind, target) {
       const w = find(target);
-      // Demo pi windows use style "pi" without cmd; codeaf reuses the chrome but has cmd "codeaf".
-      if (w.kind !== 'agent' || w.style !== 'pi' || w.cmd === 'codeaf') return { found: false };
+      if (w.kind !== 'agent') return { found: false };
+      const cmd = (w.cmd || w.style || '').toLowerCase();
+      if (kind === 'pi') {
+        if (w.style !== 'pi' || ['codeaf', 'codex', 'gemini', 'opencode'].includes(cmd)) return { found: false };
+        return ops._nativeChat(w);
+      }
+      if (cmd !== kind && !(kind === 'claude' && w.style === 'claude' && !w.cmd)) return { found: false };
       return ops._nativeChat(w);
     },
-    codeaf: ({ target }) => {
-      const w = find(target);
-      if (w.kind !== 'agent' || w.cmd !== 'codeaf') return { found: false };
-      return ops._nativeChat(w);
-    },
+    pi: ({ target }) => ops._chatKind('pi', target),
+    codeaf: ({ target }) => ops._chatKind('codeaf', target),
+    claude: ({ target }) => ops._chatKind('claude', target),
+    codex: ({ target }) => ops._chatKind('codex', target),
+    gemini: ({ target }) => ops._chatKind('gemini', target),
+    opencode: ({ target }) => ops._chatKind('opencode', target),
+    agentAuth: () => ({
+      auth: Object.fromEntries(AGENT_CATALOG.map((a) => [a.id, { login: a.login, hint: a.loginHint }])),
+      kinds: ['claude', 'codex', 'gemini', 'opencode'],
+    }),
     resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
     agents: ({ bins = [] }) => ({
       agents: Object.fromEntries((bins || []).map((b) => [
@@ -2020,8 +2061,12 @@ function bindLongPress(el, fn) {
 bindLongPress($('#srv-title'), () => go('v-form', () => fillForm(srv.id)));
 
 // Two taps: ＋ then an installed agent -> window. Missing agents show official docs + install.
+// Login runs each agent's official CLI auth in a tmux window (interactive TUI).
 let newSession = null;
 function openInstallSheet(a) {
+  const loginBtn = a.login
+    ? `<button type="button" id="do-login">Se connecter</button>`
+    : '';
   openSheet(`<h3>Installer ${esc(a.label)}</h3>
     <div class="agent-install">
       <p>${esc(a.blurb)}</p>
@@ -2029,10 +2074,15 @@ function openInstallSheet(a) {
       <div class="acts">
         <a href="${esc(a.docs)}" target="_blank" rel="noopener noreferrer">Doc officielle</a>
         <button type="button" class="primary" id="do-install">Installer sur ce serveur</button>
+        ${loginBtn}
       </div>
-      <p class="hint" style="margin:10px 0 0">Lance la commande officielle dans une nouvelle fenêtre tmux. Tu peux suivre la sortie ici, puis relancer l’agent.</p>
+      <p class="hint" style="margin:10px 0 0">${a.login
+        ? esc(a.loginHint || 'Après l’install, « Se connecter » lance la commande CLI officielle dans une fenêtre tmux.')
+        : 'Lance la commande officielle dans une nouvelle fenêtre tmux. Tu peux suivre la sortie ici, puis relancer l’agent.'}</p>
+      ${a.login ? `<div class="cmd" style="margin-top:8px">${esc(a.login)}</div>` : ''}
     </div>`, (el) => {
     $('#do-install', el).addEventListener('click', () => installAgent(a));
+    $('#do-login', el)?.addEventListener('click', () => loginAgent(a));
   });
 }
 async function installAgent(a) {
@@ -2046,6 +2096,28 @@ async function installAgent(a) {
     openWindow({
       session: r.session, window: r.window, name: `install-${a.bin}`, command: 'bash',
     });
+  } catch (e) { toast(e.message); }
+}
+async function loginAgent(a) {
+  if (!a?.login) {
+    toast(a?.loginHint || 'Pas de login CLI pour cet agent');
+    return;
+  }
+  closeSheet();
+  try {
+    const session = newSession || srv.session || 'main';
+    const r = await api(srv, 'new', {
+      session, name: `auth-${a.bin}`, command: a.login, cwd: srv.cwd || undefined,
+    });
+    const win = {
+      session: r.session, window: r.window, name: `auth-${a.bin}`,
+      command: a.login.split(/\s+/)[0],
+    };
+    // Interactive CLI login belongs in the TUI, not the native chat view.
+    state.modes[`${srv.id}|${win.session}:${win.window}`] = 'term';
+    save();
+    toast(`Login ${a.label} — suis les étapes dans le terminal`, true);
+    openWindow(win);
   } catch (e) { toast(e.message); }
 }
 $('#v-windows .scroll')?.addEventListener('scroll', syncFabWide, { passive: true });
@@ -2077,10 +2149,19 @@ $('#new-window').addEventListener('click', async () => {
       </div>
       <p class="hint">Chaque fiche ouvre la doc officielle et la commande recommandée par l’éditeur.</p>
     </details>` : '';
+    const authAgents = AGENT_CATALOG.filter((a) => a.login && (agentPresent(a.bin) || missing.some((m) => m.id === a.id)));
+    const authHtml = authAgents.length ? `<details class="miss-agents">
+      <summary>Connexion CLI <small>${authAgents.length}</small></summary>
+      <div class="presets">${authAgents.map((a) => `
+        <button type="button" class="preset ${esc(a.cls)}" data-login="${esc(a.id)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>${esc(a.login)}</small></button>`).join('')}
+      </div>
+      <p class="hint">Lance le login officiel de chaque agent dans une fenêtre tmux (navigateur / code / clé selon l’outil).</p>
+    </details>` : '';
     openSheet(`
       <h3>Nouvelle fenêtre</h3>
       <div class="sub">Disponibles sur ce serveur</div>
       ${readyHtml}
+      ${authHtml}
       ${missHtml}
       <div class="sub">Session</div>
       <div class="chips"></div>
@@ -2098,6 +2179,12 @@ $('#new-window').addEventListener('click', async () => {
         if (inst) {
           const a = AGENT_CATALOG.find((x) => x.id === inst.dataset.install);
           if (a) openInstallSheet(a);
+          return;
+        }
+        const login = e.target.closest('[data-login]');
+        if (login) {
+          const a = AGENT_CATALOG.find((x) => x.id === login.dataset.login);
+          if (a) loginAgent(a);
           return;
         }
         const run = e.target.closest('[data-run]');
@@ -2142,6 +2229,10 @@ const winKey = () => `${srv.id}|${W.win.session}:${W.win.window}`;
 
 // ---------- app profiles: keys and native views per program ----------
 // k: tmux key names (send-keys), t: literal text, cmd: text + Enter, term: switch to Terminal (interactive pickers).
+const AGENT_CTX = [
+  { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+  { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' },
+];
 const PROFILES = [
   { id: 'pi', match: /^pi$/i, chat: 'pi', stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'compacter', h: '/compact', cmd: '/compact' },
@@ -2157,9 +2248,27 @@ const PROFILES = [
     { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'senior', h: '/senior-dev', cmd: '/senior-dev' },
     { l: 'sec', h: '/sec', cmd: '/sec' }, { l: 'review', h: '/review', cmd: '/review' },
     { l: 'rewind', h: '/rewind', cmd: '/rewind' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' }] },
-  { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: [
-    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
-    { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'claude', match: /^claude$/i, chat: 'claude', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'modèle', h: '/model', cmd: '/model', term: true }, { l: 'compact', h: '/compact', cmd: '/compact' },
+    { l: 'cost', h: '/cost', cmd: '/cost' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'codex', match: /^codex$/i, chat: 'codex', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'modèle', h: '/model', cmd: '/model', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'gemini', match: /^gemini$/i, chat: 'gemini', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'auth', h: '/auth', cmd: '/auth', term: true }, { l: 'modèle', h: '/model', cmd: '/model', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'opencode', match: /^opencode$/i, chat: 'opencode', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'modèle', h: '/models', cmd: '/models', term: true },
+    { l: '/', h: 'commande', t: '/' }] },
+  { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: AGENT_CTX },
   { id: 'shell', match: /.*/, stop: 'C-c', ctx: [
     { l: 'stop', h: '^C', k: 'C-c' }, { l: 'effacer', h: '^L', k: 'C-l' }, { l: 'historique', h: '^R', k: 'C-r' },
     { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
@@ -2466,7 +2575,7 @@ async function tick() {
       drawTerm(c);
       if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
     } else if (W.profile.chat && W.piState !== 'missing') {
-      // Native chat (pi / codeaf): session file every other tick; screen gives the live stream.
+      // Native chat (pi / codeaf / claude / codex / gemini / opencode): session file every other tick.
       if (!W.pi || W.n % 2 === 0) {
         const p = await api(srv, W.profile.chat, { target: W.win });
         if (p.found) {
@@ -2830,7 +2939,7 @@ function renderPi() {
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
   if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
-  const who = W.profile?.id === 'codeaf' ? 'codeaf' : W.profile?.id === 'pi' ? 'pi' : 'l’agent';
+  const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
   let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
   if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
   for (const m of msgs) {
@@ -3033,7 +3142,7 @@ function kbPrefs() {
   if (!state.kb) state.kb = { layout: /^fr/i.test(navigator.language || '') ? 'azerty' : 'qwerty', alpha: 'glass', overlay: false, folded: false, use: {} };
   return state.kb;
 }
-const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf'].includes(W.profile.id);
+const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
 const kbPad = () => (KBD.on && !kbPrefs().overlay ? $('#tkb').offsetHeight : 0);
 
 const ACCENTS = { e: 'éèêë', a: 'àâäæ', c: 'ç', u: 'ùûü', i: 'îï', o: 'ôöœ', y: 'ÿ', n: 'ñ', "'": '’"«»', '"': '«»“”',
