@@ -6,8 +6,8 @@ stop conditions. This guide only adds how to run it remotely, and the rules that
 
 1. **You** read [What this install touches](INSTALL-SERVER.md#what-this-install-touches),
    [Privileges](INSTALL-SERVER.md#privileges-what-the-agent-can-do-as-root) and [On your computer](#on-your-computer) below.
-2. **You** do the [human setup](INSTALL-SERVER.md#human-setup-once) on the server, for the account the agent will SSH in as:
-   it installs the audited installer and its single sudo rule.
+2. If the account the agent SSHes in as has sudo, nothing to do by hand: the agent installs the audited installer itself.
+   Otherwise do the [restricted setup](INSTALL-SERVER.md#restricted-setup-agent-without-sudo) once for that account.
 3. **You** give the [prompt](#prompt-for-your-agent) to your agent.
 4. **The agent** runs each server step over SSH and checks the result from your computer. It stops and asks you on **STOP**.
 5. **You** read the token yourself on the server and log in from your iPhone.
@@ -19,7 +19,7 @@ stop conditions. This guide only adds how to run it remotely, and the rules that
 | Where commands run | Its own shell | `ssh` to the server, one step at a time |
 | DNS and HTTPS checks | From the server | From your computer, which is a real outside check |
 | Secrets | Created on the server, never printed | Same, and they never reach your computer: the token is generated on the server and stays there |
-| sudo | Only `sudo -n /usr/local/sbin/tmux-pocket-install …` | Same, over SSH. Nothing else, no password prompt |
+| sudo | Step S only, then `sudo -n /usr/local/sbin/tmux-pocket-install …` | Same, over SSH, never a password prompt |
 
 ## On your computer
 
@@ -36,7 +36,7 @@ https://github.com/tsua0002/tmux-pocket at commit <REF>, exactly.
 SERVER=<ssh destination, e.g. deploy@203.0.113.10 or a Host alias from my ~/.ssh/config>
 DOMAIN=pocket.example.com
 REF=<REF>
-On the server, you may only use sudo as: sudo -n /usr/local/sbin/tmux-pocket-install <command>.
+On the server: if you have sudo, start with step S; after it, use sudo only as: sudo -n /usr/local/sbin/tmux-pocket-install <command>.
 Follow the rules. Stop and ask me whenever the guide says STOP.
 Never show me or log BRIDGE_TOKEN or the private key.
 ```
@@ -76,12 +76,13 @@ this computer.
 ```bash
 remote <<'STEP'
 echo "connected to $(hostname) as $(id -un)"
-sudo -n -l | grep -F /usr/local/sbin/tmux-pocket-install
+sudo -n true 2>/dev/null && echo sudo-ok || sudo -n -l 2>/dev/null | grep -F /usr/local/sbin/tmux-pocket-install
 STEP
 ```
 
-**Verify:** the second line shows the installer rule. If SSH asks for a password or the rule is missing, **STOP**: the
-human must give this account key-based SSH and do the [human setup](INSTALL-SERVER.md#human-setup-once).
+**Verify:** `sudo-ok` (run step S next) or the installer rule (skip step S). If SSH asks for a password or neither line
+appears, **STOP**: the human must give this account key-based SSH and sudo, or do the
+[restricted setup](INSTALL-SERVER.md#restricted-setup-agent-without-sudo).
 
 ### Step B — DNS, checked from this computer
 
@@ -94,9 +95,9 @@ echo "server: $H"; dig +short A "$H" 2>/dev/null || getent ahostsv4 "$H" | awk '
 **Verify:** the domain's IPv4 is the server's IPv4 (the `server:` value itself when it is an IP, or what it resolves to). Otherwise **STOP** and ask the human to confirm that the
 DNS A record of `$DOMAIN` points to this server.
 
-### Steps 0 to 6 — Run the server guide remotely
+### Steps S, 0 to 6 — Run the server guide remotely
 
-Open [`INSTALL-SERVER.md`](INSTALL-SERVER.md) and run its steps 0 to 6 in order. For each code block of a step,
+Open [`INSTALL-SERVER.md`](INSTALL-SERVER.md) and run its step S (only if step A printed `sudo-ok`), then steps 0 to 6, in order. For each code block of a step,
 send it unchanged through `remote`:
 
 ```bash

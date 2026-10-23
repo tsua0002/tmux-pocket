@@ -11,6 +11,6 @@ through the same audited installer.
 Before handing either one over:
 1. Read [What this install touches](INSTALL-SERVER.md#what-this-install-touches) and
    [Privileges](INSTALL-SERVER.md#privileges-what-the-agent-can-do-as-root).
-2. Do the [human setup](INSTALL-SERVER.md#human-setup-once): install [`tmux-pocket-install`](tmux-pocket-install)
-   root-owned and allow only that command in sudoers ([`sudoers.tmux-pocket`](sudoers.tmux-pocket)).
-   The agent needs no other root right.
+2. If your agent has sudo, nothing else: it installs the audited installer [`tmux-pocket-install`](tmux-pocket-install)
+   itself and then uses only that. If it must not have sudo, do the
+   [restricted setup](INSTALL-SERVER.md#restricted-setup-agent-without-sudo) once: one sudo rule, for the installer only.

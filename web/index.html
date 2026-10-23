@@ -6,188 +6,307 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0b0d10">
+<meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <style>
+/* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
+   "agent working"; amber means "waiting for you"; red is only for stop and errors. iOS conventions: large titles,
+   translucent bars, bottom sheets, 44px touch targets. */
 :root {
-  --bg: #f2f2f7; --surface: #ffffff; --surface-2: #e9e9ef; --text: #111114; --muted: #6b6b75;
-  --line: #d9d9e0; --accent: #0a84ff; --accent-text: #ffffff; --danger: #ff3b30; --ok: #30b158;
-  --agent: #8e5cf7; --term-bg: #0b0d10; --bubble-user: #0a84ff; --bubble-agent: #ffffff;
-  --radius: 14px; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #07080b; --bg-2: #0c0e12; --surface: #13151b; --surface-2: #1a1d25; --surface-3: #232733;
+  --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+  --text: #eceef3; --text-2: #b6bac6; --muted: #7c8191;
+  --accent: #5be3a4; --accent-ink: #03150c; --accent-soft: rgba(91,227,164,.14);
+  --wait: #f5b84a; --wait-soft: rgba(245,184,74,.14); --danger: #ff6b6b; --danger-soft: rgba(255,107,107,.14);
+  --agent: #9d8cff; --agent-soft: rgba(157,140,255,.15);
+  --term-bg: #07080b; --term-fg: #d7dae0;
+  --bar: rgba(12,14,18,.78); --blur: saturate(1.6) blur(18px);
+  --r-s: 10px; --r: 14px; --r-l: 22px;
+  --ui: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --app-h: 100dvh;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0b0d10; --surface: #17191e; --surface-2: #22252c; --text: #f2f2f5; --muted: #8d8f99;
-    --line: #2a2d35; --bubble-agent: #1d2026; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0b0d10; --surface: #17191e; --surface-2: #22252c; --text: #f2f2f5; --muted: #8d8f99;
-  --line: #2a2d35; --bubble-agent: #1d2026; color-scheme: dark;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-  font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 var(--ui);
+  -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior: none; }
-button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+/* The page itself never scrolls: on iOS the keyboard would scroll it away. The app follows the visual viewport instead. */
+html, body { position: fixed; inset: 0; overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
 input, textarea, select { font: inherit; color: var(--text); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* ---------- phone frame on desktop (simulation) ---------- */
-#stage { height: var(--app-h); display: flex; justify-content: center; align-items: center; gap: 40px; }
-#app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;
-  background: var(--bg); overflow: hidden; }
+#stage { position: fixed; left: 0; right: 0; top: 0; height: var(--app-h); transform: translateY(var(--app-top, 0px));
+  display: flex; justify-content: center; align-items: center; gap: 48px; }
+#app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
 #aside { display: none; max-width: 300px; color: var(--muted); font-size: 14px; }
-#aside h1 { color: var(--text); font-size: 22px; margin: 0 0 8px; }
-#aside code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+#aside h1 { color: var(--text); font: 700 26px/1.1 var(--mono); letter-spacing: -.02em; margin: 0 0 12px; }
+#aside h1 span { color: var(--accent); }
+#aside code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; color: var(--text-2); }
 @media (min-width: 760px) and (min-height: 700px) {
-  #app { width: 393px; height: min(852px, calc(100vh - 40px)); border-radius: 44px;
-    border: 10px solid #1b1c20; box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+  body { background: radial-gradient(900px 500px at 30% 0%, #10151a, var(--bg) 70%); }
+  #app { width: 393px; height: min(852px, calc(100vh - 40px)); border-radius: 46px; border: 10px solid #1a1c21;
+    box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04); }
   #aside { display: block; }
-  :root { --safe-top: 34px; }
+  :root { --safe-top: 30px; }
 }
 
 /* ---------- chrome ---------- */
-header.bar { display: flex; align-items: center; gap: 8px; min-height: 52px;
-  padding: calc(var(--safe-top, env(safe-area-inset-top)) + 6px) 12px 6px;
-  background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
-header.bar .title { flex: 1; min-width: 0; }
-header.bar .title b { display: block; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-header.bar .title small { display: block; color: var(--muted); font-size: 12px; font-family: var(--mono);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.icon-btn { min-width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center;
-  font-size: 22px; color: var(--accent); }
-.icon-btn:active { background: var(--surface-2); }
-.view { flex: 1; min-height: 0; display: none; flex-direction: column; }
+.view { flex: 1; min-height: 0; display: none; flex-direction: column; position: relative; }
 .view.on { display: flex; }
-.scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 12px 100px; }
+header.bar { position: relative; z-index: 4; display: flex; align-items: center; gap: 4px; min-height: 50px; flex: none;
+  padding: calc(var(--safe-top, env(safe-area-inset-top)) + 4px) 8px 4px;
+  background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-bottom: 1px solid var(--line); }
+header.bar .title { flex: 1; min-width: 0; padding: 0 4px; }
+header.bar .title b { display: flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; }
+header.bar .title b span { overflow: hidden; text-overflow: ellipsis; }
+header.bar .title small { display: block; color: var(--muted); font: 11.5px/1.3 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.bar.large { border-bottom-color: transparent; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.large-title { padding: 2px 18px 10px; flex: none; }
+.large-title h1 { margin: 0; font-size: 32px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.large-title p { margin: 4px 0 0; color: var(--muted); font: 12.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { min-width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; color: var(--text-2); flex: none; }
+.icon-btn:active { background: var(--surface-2); }
+.icon-btn.accent { color: var(--accent); }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 14px 120px; }
+.sdot { width: 8px; height: 8px; border-radius: 4px; background: var(--muted); flex: none; }
+.sdot.working { background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 1.6s infinite; }
+.sdot.waiting { background: var(--wait); }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91,227,164,.5); } 70% { box-shadow: 0 0 0 7px rgba(91,227,164,0); } 100% { box-shadow: 0 0 0 0 rgba(91,227,164,0); } }
 
-/* ---------- lists ---------- */
-.group-title { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 6px 6px; }
-.list { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
-.row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; width: 100%; text-align: left;
-  border-bottom: 1px solid var(--line); }
+/* ---------- lists & cards ---------- */
+.group-title { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 4px 8px; }
+.group-title small { font: 500 11.5px var(--mono); text-transform: none; letter-spacing: 0; }
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; width: 100%; text-align: left; border-bottom: 1px solid var(--line); min-height: 52px; }
 .row:last-child { border-bottom: 0; }
 .row:active { background: var(--surface-2); }
 .row .main { flex: 1; min-width: 0; }
 .row .main b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .main small { display: block; color: var(--muted); font-size: 13px; font-family: var(--mono);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.idx { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none;
-  background: var(--surface-2); font-family: var(--mono); font-weight: 600; font-size: 14px; position: relative; }
-.idx.agent { background: var(--agent); color: #fff; }
-.idx .dot { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 5px;
-  background: var(--ok); border: 2px solid var(--surface); }
-.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); flex: none; }
-.chip.agent { background: color-mix(in srgb, var(--agent) 18%, transparent); color: var(--agent); }
-.chev { color: var(--muted); font-size: 20px; flex: none; }
-.empty { text-align: center; color: var(--muted); padding: 40px 20px; }
-.empty b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+.row .main small { display: block; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chev { color: var(--muted); flex: none; width: 18px; height: 18px; }
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.card { display: block; width: 100%; min-width: 0; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+  padding: 12px 12px 12px 12px; transition: transform .12s ease, background .12s ease; }
+.card:active { transform: scale(.985); background: var(--surface-2); }
+.card .top { display: flex; align-items: center; gap: 12px; }
+.card .main { flex: 1; min-width: 0; }
+.card .main b { display: block; font-size: 16px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .main small { display: flex; gap: 6px; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; overflow: hidden; }
+.tile { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; position: relative;
+  background: var(--surface-3); color: var(--text-2); font: 700 15px var(--mono); }
+.tile.agent { background: var(--agent-soft); color: var(--agent); }
+.tile.pi { background: var(--accent-soft); color: var(--accent); font-size: 19px; }
+.tile.chat { background: rgba(77,196,255,.13); color: #6ccdff; }
+.tile .idx { position: absolute; right: -4px; bottom: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  background: var(--bg); border: 1px solid var(--line-2); color: var(--muted); font: 600 10px/16px var(--mono); text-align: center; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 99px; font-size: 12px; font-weight: 600;
+  background: var(--surface-2); color: var(--muted); flex: none; white-space: nowrap; }
+.pill.working { background: var(--accent-soft); color: var(--accent); }
+.pill.waiting { background: var(--wait-soft); color: var(--wait); }
+.preview { margin-top: 10px; padding: 8px 10px; border-radius: 11px; background: var(--bg-2); border: 1px solid var(--line);
+  font: 11.5px/1.5 var(--mono); color: var(--text-2); }
+.preview div { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.preview div:last-child { color: var(--text); }
+.preview.dim { color: var(--muted); }
+.empty { text-align: center; color: var(--muted); padding: 56px 24px; }
+.empty b { display: block; color: var(--text); font-size: 19px; margin-bottom: 8px; }
+.empty .btn { display: inline-flex; width: auto; padding: 12px 20px; margin-top: 18px; }
+.skeleton { height: 92px; border-radius: 18px; background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%);
+  background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
+@keyframes shimmer { to { background-position: -200% 0; } }
 
-.fab { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 54px; padding: 0 20px;
-  border-radius: 27px; background: var(--accent); color: var(--accent-text); font-weight: 600;
-  display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(10,132,255,.35); z-index: 5; }
-.fab span { font-size: 26px; line-height: 1; margin-top: -2px; }
+.fab { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 54px; padding: 0 22px 0 18px; border-radius: 27px;
+  background: var(--accent); color: var(--accent-ink); font-weight: 700; display: flex; align-items: center; gap: 8px; z-index: 5;
+  box-shadow: 0 10px 30px rgba(91,227,164,.25), 0 2px 6px rgba(0,0,0,.4); }
+.fab:active { transform: scale(.97); }
 
 /* ---------- forms ---------- */
-.field { display: block; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.field { display: block; padding: 11px 14px; border-bottom: 1px solid var(--line); }
 .field:last-child { border-bottom: 0; }
-.field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
-.field input, .field textarea, .field select { width: 100%; border: 0; background: transparent; outline: none; padding: 2px 0; }
-.field textarea { font-family: var(--mono); font-size: 12px; min-height: 70px; resize: vertical; }
-.field.check { display: flex; align-items: center; justify-content: space-between; }
+.field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.field input, .field textarea, .field select { width: 100%; border: 0; background: transparent; outline: none; padding: 2px 0; font-size: 16px; }
+.field select { -webkit-appearance: none; appearance: none; }
+.field textarea { font-family: var(--mono); font-size: 13px; min-height: 70px; resize: vertical; }
+.field.check { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .field.check > span { margin: 0; font-size: 16px; color: var(--text); }
-.field.check input { width: auto; transform: scale(1.3); }
-.seg { display: flex; background: var(--surface-2); border-radius: 9px; padding: 2px; }
-.seg button { flex: 1; padding: 6px 10px; border-radius: 7px; font-size: 14px; font-weight: 600; color: var(--muted); }
-.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
-details.adv { margin-top: 14px; }
-details.adv summary { color: var(--accent); padding: 8px 6px; cursor: pointer; }
-.btn { display: block; width: 100%; padding: 14px; border-radius: 12px; background: var(--accent); color: var(--accent-text);
-  font-weight: 600; text-align: center; margin-top: 14px; }
-.btn.ghost { background: var(--surface); color: var(--accent); }
-.btn.danger { background: var(--surface); color: var(--danger); }
-.hint { color: var(--muted); font-size: 12px; margin: 6px 6px 0; }
-.pubkey { font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; padding: 8px 10px;
-  border-radius: 8px; background: var(--surface-2); user-select: all; }
+.field.check input { width: auto; accent-color: var(--accent); transform: scale(1.3); }
+.seg { display: flex; background: var(--surface-2); border-radius: 11px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; padding: 6px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 620; color: var(--muted); }
+.seg button.on { background: var(--surface-3); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+details.adv { margin-top: 16px; }
+details.adv summary { color: var(--accent); padding: 8px 4px; cursor: pointer; font-weight: 600; }
+.btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 50px; padding: 14px; border-radius: 14px;
+  background: var(--accent); color: var(--accent-ink); font-weight: 700; margin-top: 14px; }
+.btn:active { transform: scale(.985); }
+.btn.ghost { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); }
+.btn.danger { background: var(--danger-soft); color: var(--danger); }
+.hint { color: var(--muted); font-size: 12.5px; margin: 8px 4px 0; line-height: 1.45; }
+.pubkey { font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; padding: 10px;
+  border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); user-select: all; }
 
 /* ---------- sheet ---------- */
-.sheet-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-end; z-index: 20; }
-.sheet-wrap.on { display: flex; }
-.sheet { width: 100%; background: var(--surface); border-radius: 20px 20px 0 0; padding: 10px 16px calc(env(safe-area-inset-bottom) + 16px);
-  max-height: 85%; overflow-y: auto; animation: up .18s ease-out; }
-@keyframes up { from { transform: translateY(40px); opacity: .5; } }
-.grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 10px; }
-.sheet h3 { margin: 4px 0 12px; font-size: 18px; }
+.sheet-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; z-index: 20; }
+.sheet-wrap.on { display: flex; animation: fade .18s ease-out; }
+@keyframes fade { from { background: rgba(0,0,0,0); } }
+.sheet { width: 100%; background: rgba(22,24,31,.94); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-l) var(--r-l) 0 0;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 18px); max-height: 86%; overflow-y: auto; animation: up .24s cubic-bezier(.2,.8,.2,1); }
+@keyframes up { from { transform: translateY(60px); opacity: .4; } }
+.grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 12px; }
+.sheet h3 { margin: 2px 0 14px; font-size: 19px; font-weight: 700; }
+.sheet .sub { color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; margin: 16px 2px 8px; }
 .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.preset { background: var(--surface-2); border-radius: 14px; padding: 14px 6px 10px; text-align: center; }
-.preset:active { transform: scale(.97); }
-.preset .glyph { display: block; font-family: var(--mono); font-weight: 700; font-size: 18px; margin-bottom: 4px; }
-.preset small { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.chips button { padding: 6px 12px; border-radius: 99px; background: var(--surface-2); font-size: 14px; font-family: var(--mono); }
-.chips button.on { background: var(--accent); color: var(--accent-text); }
+.preset { background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px 6px 11px; text-align: center; }
+.preset:active { transform: scale(.96); background: var(--surface-3); }
+.preset .glyph { display: grid; place-items: center; width: 38px; height: 38px; margin: 0 auto 8px; border-radius: 11px;
+  background: var(--surface-3); font: 700 16px var(--mono); color: var(--text-2); }
+.preset.agent .glyph { background: var(--agent-soft); color: var(--agent); }
+.preset.pi .glyph { background: var(--accent-soft); color: var(--accent); font-size: 19px; }
+.preset small { display: block; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { padding: 7px 13px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font: 13.5px var(--mono); }
+.chips button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
 .inline { display: flex; gap: 8px; margin-top: 12px; }
-.inline input { flex: 1; min-width: 0; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-family: var(--mono); font-size: 14px; }
-.inline button { padding: 0 16px; border-radius: 12px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
-.menu .row { border-radius: 0; }
+.inline input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--bg-2);
+  font-family: var(--mono); font-size: 15px; outline: none; }
+.inline input:focus { border-color: var(--accent); }
+.inline button { padding: 0 18px; border-radius: 13px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.inline button.ghost { background: var(--surface-3); color: var(--text); border: 1px solid var(--line-2); }
+.menu .row b { font-weight: 600; }
 
 /* ---------- window view ---------- */
-#v-window header .seg { width: 150px; flex: none; }
-#termbox { flex: 1; min-height: 0; background: var(--term-bg); overflow: auto; position: relative; }
-#termbox .xterm { padding: 4px; }
-#termbox .xterm-viewport { overflow-y: hidden !important; }
-#chatbox { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: none; }
-.msg { max-width: 88%; margin: 0 0 10px; padding: 9px 12px; border-radius: 18px; white-space: pre-wrap; word-break: break-word; font-size: 15px; }
-.msg.user { margin-left: auto; background: var(--bubble-user); color: #fff; border-bottom-right-radius: 6px; }
-.msg.agent { background: var(--bubble-agent); border: 1px solid var(--line); border-bottom-left-radius: 6px;
-  font-family: var(--mono); font-size: 12.5px; line-height: 1.45; max-width: 100%; }
-.msg.agent.live { border-color: color-mix(in srgb, var(--agent) 60%, transparent); }
-.msg .tool { color: var(--ok); }
-.msg .who { display: block; font-family: -apple-system, sans-serif; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.keybar { display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; background: var(--surface); border-top: 1px solid var(--line); flex: none; scrollbar-width: none; }
-.keybar button { flex: none; min-width: 42px; height: 34px; padding: 0 10px; border-radius: 8px; background: var(--surface-2);
-  font-family: var(--mono); font-size: 13px; font-weight: 600; }
-.keybar button:active { background: var(--accent); color: #fff; }
-.composer { display: flex; gap: 8px; padding: 6px 8px calc(env(safe-area-inset-bottom) + 8px); background: var(--surface); flex: none; }
-.composer textarea { flex: 1; min-width: 0; resize: none; height: 40px; max-height: 120px; padding: 9px 14px; border-radius: 20px;
-  border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 16px; line-height: 20px; }
-.composer button { width: 40px; height: 40px; border-radius: 20px; background: var(--accent); color: #fff; font-size: 20px; flex: none; }
-.status { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top, env(safe-area-inset-top)) + 62px);
-  background: var(--danger); color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 99px; z-index: 30;
-  max-width: 90%; display: none; }
-.status.on { display: block; }
-.status.ok { background: var(--ok); }
+#v-window header .seg { flex: none; }
+#v-window header .seg button { padding: 6px 11px; font-size: 12.5px; }
+#termwrap { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
+#termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; }
+#termlines { padding: 6px 6px 10px; min-width: max-content; color: var(--term-fg); font-family: Menlo, "SF Mono", ui-monospace, monospace; white-space: pre; }
+#termlines > div { height: var(--lh); line-height: var(--lh); }
+#termlines .cur { background: var(--term-fg); color: var(--term-bg); }
+#tobottom { position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
+  background: rgba(35,39,51,.92); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--line-2);
+  color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+[hidden] { display: none !important; }
+#chatbox { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px; display: none; background: var(--bg); }
+.msg { max-width: 86%; margin: 0 0 10px; padding: 9px 13px; border-radius: 19px; white-space: pre-wrap; word-break: break-word; font-size: 15.5px; line-height: 1.42; }
+.msg.user { margin-left: auto; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 6px; font-weight: 500; }
+.msg.agent { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 6px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; max-width: 100%; color: var(--text-2); }
+.msg .tool { color: var(--accent); }
+.msg .who { display: block; font-family: var(--ui); font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+/* dock: shortcuts, keys and composer — one translucent block, foldable to give the terminal all the height */
+.dock { flex: none; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); }
+.dock-handle { display: flex; justify-content: center; width: 100%; height: 14px; padding-top: 5px; }
+.dock-handle i { width: 34px; height: 4px; border-radius: 2px; background: var(--line-2); }
+.dock.folded .keys { display: none; }
+.keys { padding: 0 0 2px; }
+.keyrow { display: flex; gap: 6px; padding: 3px 10px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
+.keyrow::-webkit-scrollbar { display: none; }
+.keyrow:empty { display: none; }
+.keyrow button { flex: none; min-width: 42px; height: 38px; padding: 0 11px; border-radius: 11px; background: var(--surface-3);
+  font: 600 13px/1.05 var(--mono); color: var(--text); border: 1px solid var(--line); }
+.keyrow button small { display: block; font: 500 9.5px var(--ui); color: var(--muted); margin-top: 1px; }
+.keyrow button:active { background: var(--accent); color: var(--accent-ink); }
+.keyrow button.mod { color: var(--text-2); }
+.keyrow button.mod.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.keyrow button.mod.on small, .keyrow button:active small { color: var(--accent-ink); }
+.keyrow.ctx button { height: 34px; border-radius: 99px; padding: 0 13px; background: var(--surface-2); font: 600 13px var(--ui); }
+.keyrow.ctx button small { display: inline; margin-left: 5px; font: 500 11px var(--mono); }
+.keyrow.ctx button.cur { background: var(--chat, #6ccdff); color: #04121a; border-color: transparent; }
+.keyrow.ctx button.cur small { color: #04121a; }
+.keyrow.ctx button.buf { font-family: var(--mono); font-weight: 600; }
+.keyrow .dot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: var(--wait); margin-left: 6px; vertical-align: 1px; }
+.keygrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; margin-bottom: 12px; }
+.keygrid button { height: 44px; border-radius: 11px; background: var(--surface-3); border: 1px solid var(--line); font: 600 13.5px var(--mono); }
+.keygrid button:active { background: var(--accent); color: var(--accent-ink); }
+.keygrid button.mod.on { background: var(--accent); color: var(--accent-ink); }
+.composer { display: flex; align-items: flex-end; gap: 8px; padding: 6px 10px calc(env(safe-area-inset-bottom) + 8px); }
+.composer textarea { flex: 1; min-width: 0; resize: none; height: 44px; max-height: 132px; padding: 11px 16px; border-radius: 22px;
+  border: 1px solid var(--line-2); background: var(--surface-2); outline: none; font-size: 16px; line-height: 20px; }
+.composer textarea:focus { border-color: rgba(91,227,164,.5); }
+.composer .send { width: 44px; height: 44px; border-radius: 22px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none;
+  transition: background .15s ease, transform .1s ease; }
+.composer .send:active { transform: scale(.92); }
+.composer .send.stop { background: var(--danger); color: #fff; }
+.composer .send .ic-stop, .composer .send.stop .ic-send { display: none; }
+.composer .send.stop .ic-stop { display: block; }
+
+/* native pi conversation */
+.msg.user.pending { opacity: .55; }
+.pmsg { margin: 0 0 12px; }
+.pmsg.assistant { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; border-bottom-left-radius: 6px;
+  padding: 11px 13px; font-size: 15.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.pmsg code { font-family: var(--mono); font-size: 13px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+.pmsg pre { font-family: var(--mono); font-size: 12px; background: var(--bg-2); border: 1px solid var(--line); padding: 9px; border-radius: 10px;
+  overflow-x: auto; white-space: pre; margin: 6px 0; color: var(--text-2); }
+.pmsg details { margin: 4px 0 0; }
+.pmsg details summary { cursor: pointer; color: var(--muted); font: 600 12px var(--mono); list-style: none; padding: 4px 0; }
+.pmsg details summary::-webkit-details-marker { display: none; }
+.pmsg .tool summary { color: var(--accent); }
+.pmsg .tool.run summary { color: var(--agent); }
+.pmsg .tool.err summary, .pmsg .err-line { color: var(--danger); }
+.pmsg .err-line { font-size: 13px; margin-top: 6px; }
+.pmsg .text + details, .pmsg details + .text { margin-top: 6px; }
+.pnote { text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0 14px; }
+.typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+.typing i { width: 7px; height: 7px; border-radius: 4px; background: var(--accent); animation: blink 1s infinite; }
+.typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 50% { opacity: .25; } }
+
+.status { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top, env(safe-area-inset-top)) + 58px);
+  background: rgba(60,20,24,.92); border: 1px solid rgba(255,107,107,.35); color: #ffd6d6; font-size: 13.5px; font-weight: 550;
+  padding: 8px 14px; border-radius: 99px; z-index: 30; max-width: 90%; display: none; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.status.on { display: block; animation: drop .2s ease-out; }
+.status.ok { background: rgba(10,50,32,.92); border-color: rgba(91,227,164,.35); color: #c8ffe3; }
+@keyframes drop { from { transform: translate(-50%, -8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+</svg>
 <div id="stage">
   <aside id="aside">
-    <h1>tmux pocket</h1>
-    <p>Prototype iPhone : gestionnaire de sessions/fenêtres tmux via SSH + chat natif avec les agents (pi, claude, codex…).</p>
-    <p><b>Démo (simulation)</b> fonctionne sans serveur : fenêtres pi, claude, htop, logs, shell. Tape <code>pi</code> ou <code>tmux ls</code> dans le shell.</p>
-    <p>Serveur réel : <code>cd tmux-pocket/bridge && npm i && npm start</code> puis ouvre <code>http://127.0.0.1:8022</code>.</p>
+    <h1>tmux<span>·</span>pocket</h1>
+    <p>Tes sessions tmux et tes agents de code (pi, claude, codex…) dans ta poche : aperçu en direct de chaque fenêtre, TUI rendu fidèlement avec un défilement natif, chat pi natif, WeeChat au doigt.</p>
+    <p><b>Démo</b> : fonctionne sans serveur. Tape <code>pi</code> ou <code>tmux ls</code> dans le shell.</p>
+    <p>Serveur réel : <code>cd bridge && npm i && npm start</code>, puis <code>http://127.0.0.1:8022</code>.</p>
   </aside>
   <div id="app">
 
     <!-- Servers -->
     <section class="view" id="v-servers">
-      <header class="bar">
-        <div class="title"><b>Serveurs</b><small>tmux pocket</small></div>
-        <button class="icon-btn" id="add-server" aria-label="Ajouter un serveur">＋</button>
+      <header class="bar large">
+        <div class="title"></div>
+        <button class="icon-btn accent" id="add-server" aria-label="Ajouter un serveur"><svg class="i"><use href="#i-plus"/></svg></button>
       </header>
-      <div class="scroll" id="servers"></div>
+      <div class="scroll">
+        <div class="large-title"><h1>Serveurs</h1><p>tmux · pocket</p></div>
+        <div id="servers"></div>
+      </div>
     </section>
 
     <!-- Server form -->
     <section class="view" id="v-form">
       <header class="bar">
-        <button class="icon-btn back" aria-label="Retour">‹</button>
-        <div class="title"><b id="form-title">Nouveau serveur</b></div>
+        <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
+        <div class="title"><b><span id="form-title">Nouveau serveur</span></b></div>
       </header>
       <form class="scroll" id="form" autocomplete="off">
         <div class="list">
@@ -235,41 +354,46 @@ details.adv summary { color: var(--accent); padding: 8px 6px; cursor: pointer; }
 
     <!-- Windows -->
     <section class="view" id="v-windows">
-      <header class="bar">
-        <button class="icon-btn back" aria-label="Retour">‹</button>
-        <div class="title"><b id="srv-name"></b><small id="srv-sub"></small></div>
-        <button class="icon-btn" id="edit-server" aria-label="Modifier">⚙︎</button>
+      <header class="bar large">
+        <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
+        <div class="title"></div>
+        <button class="icon-btn" id="edit-server" aria-label="Réglages du serveur"><svg class="i"><use href="#i-gear"/></svg></button>
       </header>
-      <div class="scroll" id="windows"></div>
-      <button class="fab" id="new-window"><span>＋</span>Nouvelle fenêtre</button>
+      <div class="scroll">
+        <div class="large-title"><h1 id="srv-name"></h1><p id="srv-sub"></p></div>
+        <div id="windows"></div>
+      </div>
+      <button class="fab" id="new-window"><svg class="i"><use href="#i-plus"/></svg>Nouvelle fenêtre</button>
     </section>
 
     <!-- Window -->
     <section class="view" id="v-window">
       <header class="bar">
-        <button class="icon-btn back" aria-label="Retour">‹</button>
-        <div class="title"><b id="win-name"></b><small id="win-sub"></small></div>
-        <div class="seg" id="mode-seg"><button data-mode="term">Terminal</button><button data-mode="chat">Chat</button></div>
-        <button class="icon-btn" id="win-menu" aria-label="Menu">⋯</button>
+        <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
+        <div class="title"><b><i class="sdot" id="win-dot"></i><span id="win-name"></span></b><small id="win-sub"></small></div>
+        <div class="seg" id="mode-seg"><button data-mode="term">TUI</button><button data-mode="chat">Chat</button></div>
+        <button class="icon-btn" id="win-menu" aria-label="Menu de la fenêtre"><svg class="i"><use href="#i-more"/></svg></button>
       </header>
-      <div id="termbox"></div>
-      <div id="chatbox"></div>
-      <div class="keybar" id="keybar">
-        <button data-keys="Escape">esc</button><button data-keys="Tab">tab</button><button data-keys="C-c">^C</button>
-        <button data-keys="Up">↑</button><button data-keys="Down">↓</button><button data-keys="Left">←</button><button data-keys="Right">→</button>
-        <button data-keys="Enter">⏎</button><button data-keys="BTab">⇧tab</button><button data-keys="C-d">^D</button>
-        <button data-keys="C-l">^L</button><button data-keys="C-r">^R</button><button data-keys="C-z">^Z</button>
-        <button data-text="/">/</button><button data-text="y">y</button><button data-text="n">n</button>
-        <button data-keys="PageUp">pgup</button><button data-keys="PageDown">pgdn</button>
+      <div id="termwrap">
+        <div id="termbox" tabindex="0"><div id="termlines"></div></div>
+        <button id="tobottom" type="button" aria-label="Revenir en bas" hidden><svg class="i"><use href="#i-down"/></svg></button>
       </div>
-      <form class="composer" id="composer">
-        <textarea id="input" rows="1" placeholder="Message ou commande…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"></textarea>
-        <button type="submit" aria-label="Envoyer">↑</button>
-      </form>
+      <div id="chatbox"></div>
+      <div class="dock" id="dock">
+        <button class="dock-handle" id="dock-handle" type="button" aria-label="Afficher ou masquer les touches"><i></i></button>
+        <div class="keys">
+          <div class="keyrow ctx" id="ctxbar"></div>
+          <div class="keyrow" id="keybar"></div>
+        </div>
+        <form class="composer" id="composer">
+          <textarea id="input" rows="1" placeholder="Message ou commande…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"></textarea>
+          <button type="submit" class="send" id="send" aria-label="Envoyer"><svg class="i ic-send"><use href="#i-send"/></svg><svg class="i ic-stop"><use href="#i-stop"/></svg></button>
+        </form>
+      </div>
     </section>
 
     <div class="sheet-wrap" id="sheet"><div class="sheet" id="sheet-body"></div></div>
-    <div class="status" id="status"></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -444,10 +568,17 @@ const Sim = (() => {
   ] });
   mk('main', 'htop', 'htop');
   mk('infra', 'api-logs', 'logs');
+  mk('infra', 'irc', 'weechat', { cur: 3, buflist: true, hot: new Set([2]), bufs: [
+    { name: 'weechat', lines: ['WeeChat 4.1.1 [compilé le Oct 23 2026]'] },
+    { name: 'libera', lines: ['-- Connecté à irc.libera.chat (6697)'] },
+    { name: '#tmux', lines: ['alice: quelqu\'un a testé extended-keys ?', 'bob: oui, set -g extended-keys on'] },
+    { name: '#agents', lines: ['carol: pi 1.4 est sorti', 'dave: le chat natif marche bien sur iPhone', 'carol: 👍'] },
+    { name: 'ops', lines: ['deploy: api v2.3 en prod', 'alert: CPU 92% sur web-2'] },
+  ] });
   mk('infra', 'deploy', 'shell', { lines: [shellPrompt() + 'kubectl get pods', 'NAME                   READY   STATUS', 'api-7d9f8b-x2k4l       1/1     Running', 'web-5c6d7e-m9n8p       1/1     Running'] });
 
   const find = (t) => { const w = wins.find((x) => x.session === t.session && x.index === Number(t.window)); if (!w) throw new Error(`can't find window: ${t.session}:${t.window}`); return w; };
-  const command = (w) => w.kind === 'shell' ? 'bash' : w.kind === 'agent' ? w.cmd || w.style : w.kind === 'htop' ? 'htop' : 'tail';
+  const command = (w) => w.kind === 'shell' ? 'bash' : w.kind === 'agent' ? w.cmd || w.style : w.kind === 'htop' ? 'htop' : w.kind === 'weechat' ? 'weechat' : 'tail';
 
   // ---------- renderers ----------
   function renderShell(w, rows, cols) {
@@ -545,9 +676,42 @@ const Sim = (() => {
     }
     return { lines: out, cursor: [0, out.length - 1] };
   }
+  function renderWeechat(w, rows, cols) {
+    rows = rows || w.rows;
+    const side = w.buflist ? 11 : 0;
+    const main = cols - side - (side ? 1 : 0);
+    const b = w.bufs[w.cur - 1];
+    const body = b.lines.flatMap((l) => wrap(l, main - 6, `${D}12:4${(l.length % 10)}${R} `, '      '));
+    const height = rows - 3;
+    const view = body.slice(-height);
+    while (view.length < height) view.unshift('');
+    const out = [];
+    for (let i = 0; i < height; i++) {
+      let left = '';
+      if (side) {
+        const bb = w.bufs[i];
+        left = bb ? pad(`${i + 1 === w.cur ? `${bg(24)}${fg(15)}` : w.hot.has(i + 1) ? fg(214) : ''}${i + 1}.${bb.name}${R}`, side) + `${fg(240)}│${R}` : ' '.repeat(side) + `${fg(240)}│${R}`;
+      }
+      out.push(left + pad(view[i] || '', main));
+    }
+    const hot = [...w.hot].filter((n) => n !== w.cur);
+    out.push(`${bg(23)}${fg(15)}` + pad(`[12:47] [${w.bufs.length}] [irc/libera] ${w.cur}:${b.name}${hot.length ? ` [H: ${hot.join(', ')}]` : ''}`, cols) + R);
+    out.push(`${fg(244)}[thomas(i)]${R} ${w.input}`);
+    out.push('');
+    return { lines: out, cursor: [Math.min(cols - 1, 12 + w.input.length), out.length - 2] };
+  }
+  function weechatCommand(w, text) {
+    const m = /^\/buffer\s+(\d+)/.exec(text);
+    if (m && w.bufs[Number(m[1]) - 1]) { w.cur = Number(m[1]); w.hot.delete(w.cur); return; }
+    if (/^\/bar toggle buflist/.test(text)) { w.buflist = !w.buflist; return; }
+    if (/^\/close/.test(text) && w.cur > 1) { w.bufs.splice(w.cur - 1, 1); w.cur = 1; return; }
+    if (text.startsWith('/')) { w.bufs[0].lines.push(`${fg(196)}=!=${R} commande simulée : ${text}`); return; }
+    if (text) w.bufs[w.cur - 1].lines.push(`${fg(39)}thomas${R}: ${text}`);
+  }
+
   function render(w, history) {
     const rows = history ? 0 : w.rows, cols = w.cols;
-    const f = { shell: renderShell, agent: renderAgent, htop: renderHtop, logs: renderLogs }[w.kind];
+    const f = { shell: renderShell, agent: renderAgent, htop: renderHtop, logs: renderLogs, weechat: renderWeechat }[w.kind];
     return f(w, rows, cols);
   }
 
@@ -605,6 +769,18 @@ const Sim = (() => {
     w.activity = Date.now() / 1000;
     if (w.kind === 'htop') { if (k === 'C-c' || k === 'q' || k === 'F10') { w.kind = 'shell'; w.lines = w.lines || []; } return; }
     if (w.kind === 'logs') { if (k === 'C-c') { Object.assign(w, { kind: 'shell', lines: ['^C'] }); } return; }
+    if (w.kind === 'weechat') {
+      const n = w.bufs.length;
+      if (k === 'M-Left' || k === 'F5') w.cur = w.cur === 1 ? n : w.cur - 1;
+      else if (k === 'M-Right' || k === 'F6') w.cur = w.cur === n ? 1 : w.cur + 1;
+      else if (k === 'M-a' && w.hot.size) w.cur = [...w.hot][0];
+      else if (k === 'Enter') { weechatCommand(w, w.input); w.input = ''; }
+      else if (k === 'BSpace') w.input = w.input.slice(0, -1);
+      else if (k.length === 1) w.input += k;
+      w.hot.delete(w.cur);
+      return;
+    }
+    if (k.length === 1 && (w.kind === 'shell' || w.kind === 'agent')) { w.input += k; return; }
     if (k === 'Enter') return w.kind === 'shell' ? (runShell(w, w.input), (w.input = '')) : submitAgent(w);
     if (k === 'BSpace') { w.input = w.input.slice(0, -1); return; }
     if (k === 'C-c') {
@@ -623,13 +799,26 @@ const Sim = (() => {
   const ops = {
     list: () => ({ windows: wins.map((w, i) => ({ session: w.session, window: w.index, name: w.name, active: false,
       command: command(w), activity: Math.floor(w.activity), attached: 0, width: w.cols, height: w.rows })) }),
+    // Same shape as the bridge's screen op: regular programs have history, full-screen ones don't.
+    screen: ({ target, tail }) => {
+      const w = find(target);
+      const alt = w.kind === 'htop' || w.kind === 'weechat';
+      const all = render(w, !alt).lines.map((l) => l + R);
+      const vis = render(w, false);
+      const hist = alt ? [] : all.slice(0, Math.max(0, all.length - vis.lines.length));
+      return { width: w.cols, height: w.rows, cursor: vis.cursor, cursorVisible: !alt, alt, mouse: { any: false, sgr: false },
+        historySize: hist.length, command: command(w), history: hist.slice(-(tail || 0) || hist.length), screen: vis.lines.map((l) => l + R) };
+    },
+    mouse: () => ({ ok: true }),
+    previews: ({ lines = 8 }) => ({ previews: Object.fromEntries(wins.map((w) => [`${w.session}:${w.index}`,
+      render(w, false).lines.map((l) => l.replace(ANSI, '')).filter((l) => l.trim()).slice(-lines)])) }),
     capture: ({ target, history }) => {
       const w = find(target); const r = render(w, !!history);
       return { width: w.cols, height: history ? r.lines.length : w.rows, cursor: r.cursor, command: command(w), screen: r.lines.map((l) => l + R).join('\n') + '\n' };
     },
     send: ({ target, text, enter = true }) => {
       const w = find(target);
-      if (w.kind === 'shell' || w.kind === 'agent') w.input += text; else key(w, text);
+      if (w.kind === 'shell' || w.kind === 'agent' || w.kind === 'weechat') w.input += text; else key(w, text);
       if (enter) key(w, 'Enter');
       return { ok: true };
     },
@@ -640,6 +829,17 @@ const Sim = (() => {
       return { session, window: w.index };
     },
     kill: ({ target }) => { wins.splice(wins.indexOf(find(target)), 1); return { ok: true }; },
+    // Same shape as the bridge's pi op (pi's session file). The reply being streamed isn't in it yet.
+    pi: ({ target }) => {
+      const w = find(target);
+      if (w.kind !== 'agent' || w.style !== 'pi') return { found: false };
+      const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
+      const messages = items.map((it, i) => it.role === 'user' ? { id: `m${i}`, role: 'user', text: it.text }
+        : it.role === 'tool' ? { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
+          args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] }
+        : { id: `m${i}`, role: 'assistant', text: it.text, tools: [] });
+      return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
+    },
     resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
   };
   return {
@@ -674,8 +874,11 @@ function toast(msg, ok = false) {
 }
 
 function openSheet(html, bind) {
-  $('#sheet-body').innerHTML = '<div class="grabber"></div>' + html;
-  $('#sheet').classList.add('on'); bind && bind($('#sheet-body'));
+  // A fresh element per sheet, so listeners from a previous sheet never fire on this one.
+  const body = $('#sheet-body').cloneNode(false);
+  $('#sheet-body').replaceWith(body);
+  body.innerHTML = '<div class="grabber"></div>' + html;
+  $('#sheet').classList.add('on'); bind && bind(body);
 }
 // Two-tap confirmation inside the UI (no blocking dialogs on iOS web views / embedded frames).
 function armed(btn, label) {
@@ -688,9 +891,19 @@ const closeSheet = () => $('#sheet').classList.remove('on');
 $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
 
 // iOS keyboard: keep the composer above it.
+// iOS keyboard: keep the whole app (header, content, keys, composer) inside the visible area above it.
 if (window.visualViewport) {
-  const fit = () => document.documentElement.style.setProperty('--app-h', `${visualViewport.height}px`);
-  visualViewport.addEventListener('resize', fit); fit();
+  const vv = window.visualViewport, root = document.documentElement.style;
+  let refit;
+  const fit = () => {
+    root.setProperty('--app-h', `${vv.height}px`);
+    root.setProperty('--app-top', `${vv.offsetTop}px`);
+    if (window.scrollY) window.scrollTo(0, 0);
+    // The terminal gets fewer rows while the keyboard is open, so the TUI redraws its input line in view.
+    clearTimeout(refit);
+    refit = setTimeout(() => { if (nav.length && nav[nav.length - 1].id === 'v-window' && W.mode === 'term') fitToPhone().then(tick); }, 250);
+  };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
 
 const ago = (ts) => {
@@ -702,21 +915,25 @@ const ago = (ts) => {
 // =====================================================================
 // Screen 1: servers
 // =====================================================================
+const CHEV = '<svg class="i chev"><use href="#i-chev"/></svg>';
 function renderServers() {
   const box = $('#servers');
   if (!state.servers.length) {
-    box.innerHTML = '<div class="empty"><b>Aucun serveur</b>Ajoute une connexion SSH avec ＋</div>';
+    box.innerHTML = '<div class="empty"><b>Aucun serveur</b>Ajoute la connexion SSH de ta machine : tes fenêtres tmux apparaîtront ici.<br><button class="btn" data-add>Ajouter un serveur</button></div>';
     return;
   }
-  box.innerHTML = '<div class="list">' + state.servers.map((s) => `
-    <button class="row" data-id="${esc(s.id)}">
-      <div class="idx">${s.transport === 'demo' ? '◎' : '⌁'}</div>
+  box.innerHTML = '<div class="cards">' + state.servers.map((s) => `
+    <button class="card" data-id="${esc(s.id)}"><div class="top">
+      <div class="tile ${s.transport === 'demo' ? 'pi' : ''}">${s.transport === 'demo' ? 'π' : '<svg class="i"><use href="#i-server"/></svg>'}</div>
       <div class="main"><b>${esc(s.name || s.host)}</b><small>${esc(s.user)}@${esc(s.host)}${s.port && s.port != 22 ? ':' + esc(s.port) : ''}</small></div>
-      ${s.transport === 'demo' ? '<span class="chip">démo</span>' : s.transport === 'local' ? '<span class="chip">local</span>' : ''}
-      <span class="chev">›</span>
-    </button>`).join('') + '</div><p class="hint">Touche un serveur pour voir ses fenêtres tmux.</p>';
-  $$('.row', box).forEach((r) => r.addEventListener('click', () => openServer(r.dataset.id)));
+      ${s.transport === 'demo' ? '<span class="pill">démo</span>' : s.transport === 'local' ? '<span class="pill">local</span>' : ''}
+      ${CHEV}
+    </div></button>`).join('') + '</div><p class="hint">Touche un serveur pour voir ses fenêtres tmux en direct.</p>';
 }
+$('#servers').addEventListener('click', (e) => {
+  if (e.target.closest('[data-add]')) return go('v-form', () => fillForm(null));
+  const c = e.target.closest('.card'); if (c) openServer(c.dataset.id);
+});
 $('#add-server').addEventListener('click', () => go('v-form', () => fillForm(null)));
 
 // =====================================================================
@@ -825,40 +1042,75 @@ function openServer(id) {
 function enterWindows() {
   $('#srv-name').textContent = srv.name || srv.host;
   $('#srv-sub').textContent = `${srv.user}@${srv.host}`;
-  $('#windows').innerHTML = '<div class="empty">Connexion…</div>';
+  if (!lastWindows.length || lastWindows.srv !== srv.id) $('#windows').innerHTML = '<div class="cards"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
   refreshWindows();
   clearInterval(listTimer); listTimer = setInterval(refreshWindows, 3000);
 }
+let lastPreviews = {}, lastListHtml = '';
 async function refreshWindows() {
   if (document.hidden) return;
   try {
-    const { windows } = await api(srv, 'list');
-    lastWindows = windows; drawWindows(windows);
+    const [{ windows }, pv] = await Promise.all([api(srv, 'list'), api(srv, 'previews', { lines: 10 }).catch(() => ({ previews: {} }))]);
+    lastWindows = windows; lastWindows.srv = srv.id; lastPreviews = pv.previews || {};
+    drawWindows(windows);
   } catch (e) {
-    $('#windows').innerHTML = `<div class="empty"><b>Connexion impossible</b>${esc(e.message)}<br><br>Vérifie que le bridge tourne (<code>npm start</code>) et l'URL dans ⚙︎ › Avancé.</div>`;
+    lastListHtml = '';
+    $('#windows').innerHTML = `<div class="empty"><b>Connexion impossible</b>${esc(e.message)}<br><button class="btn ghost" data-retry>Réessayer</button></div>`;
   }
+}
+// Program icon and colour for a window.
+function glyphOf(w) {
+  const cmd = w.command || '', all = `${cmd} ${w.name || ''}`;
+  if (/^pi$/i.test(cmd) || /^pi$/i.test(w.name || '')) return ['π', 'pi'];
+  if (/claude/i.test(all)) return ['✻', 'agent'];
+  if (/codex/i.test(all)) return ['◎', 'agent'];
+  if (/gemini/i.test(all)) return ['✦', 'agent'];
+  if (AGENT_RE.test(cmd) || AGENT_RE.test(w.name || '')) return ['◆', 'agent'];
+  if (/weechat|irssi/i.test(all)) return ['#', 'chat'];
+  if (/^(h|b)?top$/.test(cmd)) return ['▤', ''];
+  if (/tail|journalctl|less/.test(cmd)) return ['≡', ''];
+  return ['$', ''];
+}
+// What the program is doing, from the bottom of its screen.
+const WAIT_RE = /\b(y\/n|yes\/no|Allow|Approve|Do you want|Continue\?|Press enter)\b|\[[Yy]\/[Nn]\]|❯\s*1\.\s*Yes/;
+function statusOf(lines) {
+  const txt = lines.join('\n');
+  return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
+}
+const PILL = { working: '<span class="pill working"><i class="sdot working"></i>en cours</span>', waiting: '<span class="pill waiting"><i class="sdot waiting"></i>t\'attend</span>', idle: '' };
+function previewOf(w) {
+  const raw = lastPreviews[`${w.session}:${w.window}`] || [];
+  const lines = raw.length ? cleanScreen(raw.join('\n'), w.width || 80).filter((l) => l.trim()).slice(-2) : [];
+  return { status: statusOf(raw), lines };
 }
 function drawWindows(windows) {
   const box = $('#windows');
   if (!windows.length) {
-    box.innerHTML = '<div class="empty"><b>Aucune session tmux</b>Crée ta première fenêtre avec ＋ Nouvelle fenêtre</div>';
-    return;
+    box.innerHTML = '<div class="empty"><b>Aucune fenêtre tmux</b>Lance un agent ou un shell en deux touches.<br><button class="btn" data-new>Nouvelle fenêtre</button></div>';
+    lastListHtml = ''; return;
   }
   const sessions = [...new Set(windows.map((w) => w.session))];
-  box.innerHTML = sessions.map((s) => `
-    <div class="group-title">${esc(s)}</div>
-    <div class="list">${windows.filter((w) => w.session === s).map((w) => `
-      <button class="row" data-s="${esc(w.session)}" data-w="${w.window}">
-        <div class="idx ${isAgent(w) ? 'agent' : ''}">${w.window}${w.active && w.attached ? '<i class="dot"></i>' : ''}</div>
-        <div class="main"><b>${esc(w.name)}</b><small>${esc(w.command)} · ${ago(w.activity)}</small></div>
-        ${isAgent(w) ? '<span class="chip agent">agent</span>' : ''}
-        <span class="chev">›</span>
-      </button>`).join('')}</div>`).join('');
-  $$('.row', box).forEach((r) => r.addEventListener('click', () => {
-    const w = windows.find((x) => x.session === r.dataset.s && x.window === Number(r.dataset.w));
-    openWindow(w);
-  }));
+  const html = sessions.map((s) => {
+    const ws = windows.filter((w) => w.session === s);
+    return `<div class="group-title">${esc(s)}<small>${ws.length} fenêtre${ws.length > 1 ? 's' : ''}</small></div><div class="cards">${ws.map((w) => {
+      const [g, cls] = glyphOf(w), pv = previewOf(w);
+      return `<button class="card" data-s="${esc(w.session)}" data-w="${w.window}"><div class="top">
+        <div class="tile ${cls}">${esc(g)}<span class="idx">${w.window}</span></div>
+        <div class="main"><b>${esc(w.name)}</b><small><span>${esc(w.command)}</span><span>·</span><span>${ago(w.activity)}</span></small></div>
+        ${PILL[pv.status]}</div>
+        ${pv.lines.length ? `<div class="preview">${pv.lines.map((l) => `<div>${esc(l.trim())}</div>`).join('')}</div>` : ''}
+      </button>`;
+    }).join('')}</div>`;
+  }).join('');
+  if (html !== lastListHtml) { lastListHtml = html; box.innerHTML = html; }
 }
+$('#windows').addEventListener('click', (e) => {
+  if (e.target.closest('[data-retry]')) return refreshWindows();
+  if (e.target.closest('[data-new]')) return $('#new-window').click();
+  const c = e.target.closest('.card'); if (!c) return;
+  const w = lastWindows.find((x) => x.session === c.dataset.s && x.window === Number(c.dataset.w));
+  if (w) openWindow(w);
+});
 $('#edit-server').addEventListener('click', () => go('v-form', () => fillForm(srv.id)));
 
 // Two taps: ＋ then a preset -> window created with the command running, and opened.
@@ -869,12 +1121,14 @@ $('#new-window').addEventListener('click', () => {
   const presets = parsePresets(srv.presets);
   openSheet(`
     <h3>Nouvelle fenêtre</h3>
-    <div class="chips"></div>
     <div class="presets">${presets.map((p, i) => `
-      <button class="preset" data-i="${i}"><span class="glyph">${esc(p.cmd ? p.label.slice(0, 2) : '$_')}</span>${esc(p.label)}<small>${esc(p.cmd || 'shell')}</small></button>`).join('')}
+      <button class="preset ${glyphOf({ command: p.cmd.split(/\s+/)[0], name: p.label })[1]}" data-i="${i}"><span class="glyph">${esc(p.cmd ? glyphOf({ command: p.cmd.split(/\s+/)[0], name: p.label })[0] : '$')}</span>${esc(p.label)}<small>${esc(p.cmd || 'shell')}</small></button>`).join('')}
     </div>
-    <form class="inline" id="custom"><input name="cmd" placeholder="autre commande… ex: npm run dev" autocapitalize="off" autocorrect="off" spellcheck="false"><button>Lancer</button></form>
-    <form class="inline" id="newsess"><input name="s" placeholder="ou nouvelle session…" autocapitalize="off" autocorrect="off" spellcheck="false"><button>＋</button></form>`,
+    <div class="sub">Session</div>
+    <div class="chips"></div>
+    <form class="inline" id="newsess"><input name="s" placeholder="nouvelle session…" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="ghost">Créer</button></form>
+    <div class="sub">Autre commande</div>
+    <form class="inline" id="custom" style="margin-top:0"><input name="cmd" placeholder="ex : npm run dev" autocapitalize="off" autocorrect="off" spellcheck="false"><button>Lancer</button></form>`,
   (el) => {
     const drawChips = () => {
       $('.chips', el).innerHTML = sessions.map((s) => `<button type="button" data-s="${esc(s)}" class="${s === newSession ? 'on' : ''}">${esc(s)}</button>`).join('');
@@ -903,58 +1157,173 @@ async function createWindow(name, cmd) {
 }
 
 // =====================================================================
-// Screen 4: a window — Terminal (xterm.js) or Chat (agent-native view)
+// Screen 4: a window — Terminal (native-scrolling HTML view) or Chat (agent-native view)
 // =====================================================================
-const W = { win: null, term: null, timer: null, busy: false, last: '', mode: 'term', fitted: false, baseline: null, live: '' };
+const W = { win: null, term: null, timer: null, busy: false, last: '', mode: 'term', fitted: false, n: 0,
+  profile: null, pi: null, piState: 'unknown', screen: null, pending: null, sent: [], open: new Set(), buffers: [], mods: new Set() };
 const winKey = () => `${srv.id}|${W.win.session}:${W.win.window}`;
 
+// ---------- app profiles: keys and native views per program ----------
+// k: tmux key names (send-keys), t: literal text, cmd: text + Enter, term: switch to Terminal (interactive pickers).
+const PROFILES = [
+  { id: 'pi', match: /^pi$/i, chat: 'pi', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'nouveau', h: '/new', cmd: '/new' }, { l: 'compacter', h: '/compact', cmd: '/compact' },
+    { l: 'modèle', h: '^L', k: 'C-l', term: true }, { l: 'modèle +1', h: '^P', k: 'C-p' }, { l: 'réflexion', h: '⇧tab', k: 'BTab' },
+    { l: 'reprendre', h: '/resume', cmd: '/resume', term: true }, { l: 'arbre', h: '/tree', cmd: '/tree', term: true },
+    { l: 'outils', h: '^O', k: 'C-o' }, { l: 'pensées', h: '^T', k: 'C-t' }, { l: 'effacer', h: '^C', k: 'C-c' }] },
+  { id: 'weechat', match: /^weechat/i, buffers: true, ctx: [
+    { l: '◀ buffer', h: 'alt+←', k: 'M-Left' }, { l: 'buffer ▶', h: 'alt+→', k: 'M-Right' }, { l: 'activité', h: 'alt+a', k: 'M-a' },
+    { l: '⇞ haut', h: 'pgup', k: 'PageUp' }, { l: '⇟ bas', h: 'pgdn', k: 'PageDown' }, { l: 'précédent', h: 'alt+<', k: 'M-<' },
+    { l: 'liste', h: '/bar', cmd: '/bar toggle buflist' }, { l: 'pseudos', h: '/bar', cmd: '/bar toggle nicklist' }, { l: 'fermer', h: '/close', cmd: '/close' }] },
+  { id: 'agent', match: AGENT_RE, stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' }, { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'mode', h: '⇧tab', k: 'BTab' }, { l: 'détails', h: '^O', k: 'C-o' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'shell', match: /.*/, stop: 'C-c', ctx: [
+    { l: 'stop', h: '^C', k: 'C-c' }, { l: 'effacer', h: '^L', k: 'C-l' }, { l: 'historique', h: '^R', k: 'C-r' },
+    { l: 'pause', h: '^Z', k: 'C-z' }, { l: 'quitter', h: '^D', k: 'C-d' }, { l: 'q', h: 'quitter', t: 'q' }] },
+];
+const profileOf = (w) => PROFILES.find((p) => p.match.test(w.command || '') || (p.id !== 'shell' && p.match.test(w.name || '')));
+
+// Generic keys; ctrl / alt / shift are sticky modifiers for the next key, from this bar or the keyboard.
+const KEYS = [
+  { l: 'ctrl', mod: 'C' }, { l: 'alt', mod: 'M' }, { l: '⇧', mod: 'S' },
+  { l: 'esc', k: 'Escape' }, { l: 'tab', k: 'Tab' }, { l: '⏎', k: 'Enter' }, { l: '↑', k: 'Up' }, { l: '↓', k: 'Down' },
+  { l: '←', k: 'Left' }, { l: '→', k: 'Right' }, { l: '⌫', k: 'BSpace' }, { l: 'del', k: 'DC' }, { l: 'home', k: 'Home' },
+  { l: 'end', k: 'End' }, { l: 'pgup', k: 'PageUp' }, { l: 'pgdn', k: 'PageDown' }, { l: '⌨︎ +', more: true },
+];
+const MORE_KEYS = [...'abcdefghijklmnopqrstuvwxyz'].map((c) => ({ l: c, k: c }))
+  .concat(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].map((f) => ({ l: f, k: f })))
+  .concat([['/', '/'], ['-', '-'], ['|', '|'], ['~', '~'], ['[', '['], [']', ']'], ['<', '<'], ['>', '>'], [':', ':'], ['!', '!'],
+    ['$', '$'], ['`', '`']].map(([l, k]) => ({ l, k })));
+
+const keyBtn = (x, i, set) => `<button type="button" data-set="${set}" data-i="${i}" class="${x.mod ? 'mod' + (W.mods.has(x.mod) ? ' on' : '') : ''}">${esc(x.l)}${x.h ? `<small>${esc(x.h)}</small>` : ''}</button>`;
+function drawKeys() {
+  $('#keybar').innerHTML = KEYS.map((x, i) => keyBtn(x, i, 'keys')).join('');
+  drawCtx();
+}
+function drawCtx() {
+  const p = W.profile;
+  let html = '';
+  if (p.buffers && W.buffers.length) {
+    html += W.buffers.map((b) => `<button type="button" data-buf="${b.n}" class="${b.current ? 'cur' : ''}">${b.n}·${esc(b.name)}${b.hot ? '<i class="dot"></i>' : ''}</button>`).join('');
+  }
+  html += p.ctx.map((x, i) => keyBtn(x, i, 'ctx')).join('');
+  if (html !== W.ctxHtml) { W.ctxHtml = html; $('#ctxbar').innerHTML = html; }
+}
+
+// tmux key name with the armed modifiers, e.g. C-M-Left, S-Up, C-o. Shift on a letter is the capital letter.
+function withMods(key) {
+  const m = W.mods;
+  let k = key;
+  if (m.has('S') && /^[a-z]$/.test(k)) k = k.toUpperCase();
+  else if (m.has('S')) k = `S-${k}`;
+  if (m.has('M')) k = `M-${k}`;
+  if (m.has('C')) k = `C-${k}`;
+  W.mods.clear(); drawKeys();
+  return k;
+}
+async function press(x) {
+  touched();
+  if (x.mod) { W.mods.has(x.mod) ? W.mods.delete(x.mod) : W.mods.add(x.mod); return drawKeys(); }
+  if (x.more) return openMoreKeys();
+  try {
+    if (x.k) await api(srv, 'keys', { target: W.win, keys: [withMods(x.k)] });
+    else if (x.t) await api(srv, 'send', { target: W.win, text: x.t, enter: false });
+    else if (x.cmd) await api(srv, 'send', { target: W.win, text: x.cmd, enter: true });
+    if (x.term && W.mode !== 'term') setMode('term');
+    tick();
+  } catch (err) { toast(err.message); }
+}
+function onKeyRow(e) {
+  const b = e.target.closest('button[data-set], button[data-buf]'); if (!b) return;
+  if (b.dataset.buf) return press({ cmd: `/buffer ${b.dataset.buf}` });
+  const list = b.dataset.set === 'ctx' ? W.profile.ctx : b.dataset.set === 'more' ? MORE_KEYS : KEYS;
+  press(list[Number(b.dataset.i)]);
+}
+$('#keybar').addEventListener('click', onKeyRow);
+$('#ctxbar').addEventListener('click', onKeyRow);
+function openMoreKeys() {
+  openSheet(`<h3>Touches</h3>
+    <div class="keygrid">${KEYS.filter((x) => x.mod).map((x) => keyBtn(x, KEYS.indexOf(x), 'keys')).join('')}</div>
+    <div class="keygrid">${MORE_KEYS.map((x, i) => keyBtn(x, i, 'more')).join('')}</div>
+    <p class="hint">ctrl, alt et ⇧ s'appliquent à la touche suivante : ici, dans la barre, ou tapée au clavier.</p>`, (el) => {
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-set]'); if (!b) return;
+      onKeyRow(e);
+      if (b.dataset.set === 'keys') $$('.keygrid button.mod', el).forEach((m) => m.classList.toggle('on', W.mods.has(KEYS[Number(m.dataset.i)].mod)));
+      else closeSheet();
+    });
+  });
+}
+
+// ---------- window lifecycle ----------
 function openWindow(win) {
-  W.win = win; W.last = ''; W.live = '';
-  // Only show what came after the last agent message we already froze in the chat history.
-  const lastAgent = [...(state.chats[winKey()] || [])].reverse().find((m) => m.role === 'agent');
-  W.baseline = lastAgent ? lastAgent.text.split('\n') : null;
-  W.mode = state.modes[winKey()] || (isAgent(win) ? 'chat' : 'term');
+  Object.assign(W, { win, last: '', ctxHtml: '', pi: null, piState: 'unknown', screen: null, pending: null, buffers: [], n: 0, toBottom: true });
+  W.profile = profileOf(win);
+  try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
+  // The program's own TUI by default (it stays right whatever its version); the chat view is one tap away.
+  W.mode = state.modes[winKey()] || 'term';
+  if (W.profile.buffers) W.mode = 'term'; // WeeChat is driven from the terminal view and its buffer bar
+  $('#mode-seg').style.display = W.profile.buffers || W.profile.id === 'shell' ? 'none' : '';
+  W.status = 'idle'; setStatus('idle');
   go('v-window', enterWindow);
   nav[nav.length - 1].leave = leaveWindow;
 }
 function enterWindow() {
   $('#win-name').textContent = W.win.name;
-  $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${W.win.command || ''}`;
-  if (!W.term) {
-    W.term = new Terminal({ fontFamily: 'Menlo, "SF Mono", ui-monospace, monospace', fontSize: 12, cursorBlink: false,
-      theme: { background: '#0b0d10' }, scrollback: 0, convertEol: false, allowProposedApi: false });
-    W.term.open($('#termbox'));
-    W.term.onData(onTermData);
-  }
+  setSub();
+  resetTerm();
+  W.mods.clear(); drawKeys();
   setMode(W.mode);
   fitToPhone().finally(() => { tick(); });
-  clearInterval(W.timer);
-  W.timer = setInterval(tick, srv.transport === 'demo' ? 150 : 600);
+  schedule();
+}
+function setSub() {
+  const model = W.pi?.model ? ` · ${W.pi.model}` : '';
+  $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${W.win.command || ''}${model}`;
+}
+// Refresh fast while you interact or the program is working, slowly otherwise.
+function schedule() {
+  clearTimeout(W.timer);
+  const busy = Date.now() - (W.touched || 0) < 2500 || W.status === 'working';
+  W.timer = setTimeout(async () => { await tick(); if (nav.length && nav[nav.length - 1].id === 'v-window') schedule(); },
+    document.hidden ? 2000 : busy ? 160 : srv.transport === 'demo' ? 300 : 700);
+}
+const touched = () => { W.touched = Date.now(); if (W.status !== 'working') schedule(); };
+function setStatus(st) {
+  W.status = st;
+  $('#win-dot').className = `sdot ${st}`;
+  $('#send').classList.toggle('stop', st === 'working' && !$('#input').value && !!W.profile.stop);
+  $('#send').setAttribute('aria-label', $('#send').classList.contains('stop') ? 'Interrompre' : 'Envoyer');
 }
 function leaveWindow() {
-  clearInterval(W.timer);
+  clearTimeout(W.timer);
   if (W.fitted) api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {});
   W.fitted = false;
 }
 function setMode(m) {
   W.mode = m; state.modes[winKey()] = m; save();
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
-  $('#termbox').style.display = m === 'term' ? '' : 'none';
+  $('#termwrap').style.display = m === 'term' ? '' : 'none';
   $('#chatbox').style.display = m === 'chat' ? 'block' : 'none';
-  $('#input').placeholder = m === 'chat' ? 'Message à l\'agent…' : 'Commande (⏎ envoie)…';
-  W.last = '';
-  if (m === 'chat') drawChat(null);
+  $('#input').placeholder = m === 'chat' ? `Message à ${W.win.name}…` : 'Commande (⏎ envoie)…';
+  W.last = ''; W.toBottom = true;
+  if (m === 'chat') drawChat();
+  // The terminal's size is only known once it is shown.
+  else if (nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
 }
 $$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
 // Resize the tmux window so TUIs re-layout for a phone screen.
-const CHAR_W = 0.6, LINE_H = 1.2, FONT = 12;
+const LINE_H = 1.25, FONT = 12;
 async function fitToPhone() {
   if (srv.fit === false) return;
   const box = $('#termbox');
-  const width = (box.clientWidth || $('#app').clientWidth) - 8, height = (box.clientHeight || 500) - 8;
-  const cols = Math.max(30, Math.floor(width / (FONT * CHAR_W)));
-  const rows = Math.max(10, Math.floor(height / (FONT * LINE_H)));
+  const width = (box.clientWidth || $('#app').clientWidth) - 12, height = (box.clientHeight || 500) - 16; // #termlines padding
+  const cols = Math.max(30, Math.floor(width / (FONT * cellRatio())));
+  // Same font and line height as drawTerm will pick for this width.
+  const fs = Math.max(6, Math.min(14, Math.floor((width / (cols * cellRatio())) * 2) / 2));
+  const rows = Math.max(10, Math.floor(height / Math.round(fs * LINE_H)));
   try { await api(srv, 'resize', { target: W.win, cols, rows }); W.fitted = true; } catch (e) { /* old tmux: fall back to scaling */ }
 }
 
@@ -962,40 +1331,307 @@ async function tick() {
   if (W.busy || document.hidden) return;
   W.busy = true;
   try {
-    if (W.mode === 'term') drawTerm(await api(srv, 'capture', { target: W.win }));
-    else drawChat(await api(srv, 'capture', { target: W.win, history: 400 }));
+    W.n++;
+    if (W.mode === 'term') {
+      // Whole history the first time, then only the last lines (new ones are merged in).
+      const c = await api(srv, 'screen', { target: W.win, tail: TV.full ? 2000 : 120 });
+      mergeHistory(c);
+      W.screen = { ...c, screen: c.screen.join('\n') };
+      drawTerm(c);
+      if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
+    } else if (W.profile.chat === 'pi' && W.piState !== 'missing') {
+      // Conversation from pi's session file every other tick; the visible screen gives the live state.
+      if (!W.pi || W.n % 2 === 0) {
+        const p = await api(srv, 'pi', { target: W.win });
+        W.piState = p.found ? 'ok' : 'missing';
+        if (p.found) { W.pi = p; setSub(); }
+      }
+      W.screen = await api(srv, 'capture', { target: W.win });
+      drawChat();
+    } else {
+      W.screen = await api(srv, 'capture', { target: W.win, history: 400 });
+      drawChat();
+    }
   } catch (e) {
     toast(e.message);
-    if (/can't find|no such|not found/i.test(e.message)) { clearInterval(W.timer); back(); }
-  } finally { W.busy = false; }
+    if (/can't find|no such|not found/i.test(e.message)) { clearTimeout(W.timer); back(); }
+  } finally {
+    W.busy = false;
+    if (W.screen) setStatus(statusOf([W.screen.screen.replace(ANSI_RE, '')]));
+  }
+}
+
+// ---------- terminal view: tmux lines rendered as HTML in a native scroll view ----------
+// Regular programs (shell, pi in its default mode): the tmux history is loaded once, then only new lines,
+// and scrolled natively (inertia, selectable text, zero latency). Programs on the alternate screen
+// (pi fullscreen, WeeChat, htop…): swipes become mouse-wheel events (or Page keys), taps become clicks.
+const PALETTE = ['#1e1e1e', '#e05561', '#8cc265', '#d18f52', '#4aa5f0', '#c162de', '#42b3c2', '#d7dae0',
+  '#666e7a', '#ff616e', '#a5e075', '#f0a45d', '#4dc4ff', '#de73ff', '#4cd1e0', '#ffffff'];
+const TERM_FG = '#d7dae0', TERM_BG = '#0b0d10';
+function color256(n) {
+  if (n < 16) return PALETTE[n];
+  if (n < 232) { const v = [0, 95, 135, 175, 215, 255]; n -= 16; return `rgb(${v[Math.floor(n / 36)]},${v[Math.floor(n / 6) % 6]},${v[n % 6]})`; }
+  const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`;
+}
+function applySgr(st, params) {
+  const p = params === '' ? [0] : params.split(/[;:]/).map((x) => Number(x) || 0);
+  for (let i = 0; i < p.length; i++) {
+    const v = p[i];
+    if (v === 0) Object.assign(st, { fg: null, bg: null, b: 0, d: 0, it: 0, u: 0, inv: 0 });
+    else if (v === 1) st.b = 1; else if (v === 2) st.d = 1; else if (v === 3) st.it = 1; else if (v === 4) st.u = 1; else if (v === 7) st.inv = 1;
+    else if (v === 22) st.b = st.d = 0; else if (v === 23) st.it = 0; else if (v === 24) st.u = 0; else if (v === 27) st.inv = 0;
+    else if (v >= 30 && v <= 37) st.fg = PALETTE[v - 30]; else if (v >= 90 && v <= 97) st.fg = PALETTE[v - 82]; else if (v === 39) st.fg = null;
+    else if (v >= 40 && v <= 47) st.bg = PALETTE[v - 40]; else if (v >= 100 && v <= 107) st.bg = PALETTE[v - 92]; else if (v === 49) st.bg = null;
+    else if (v === 38 || v === 48) {
+      let c = null;
+      if (p[i + 1] === 5) { c = color256(p[i + 2]); i += 2; } else if (p[i + 1] === 2) { c = `rgb(${p[i + 2]},${p[i + 3]},${p[i + 4]})`; i += 4; }
+      if (v === 38) st.fg = c; else st.bg = c;
+    }
+  }
+}
+function styleOf(st) {
+  let fg = st.fg, bg = st.bg;
+  if (st.inv) [fg, bg] = [bg || TERM_BG, fg || TERM_FG];
+  return (fg ? `color:${fg};` : '') + (bg ? `background:${bg};` : '') + (st.b ? 'font-weight:700;' : '') + (st.d ? 'opacity:.6;' : '')
+    + (st.it ? 'font-style:italic;' : '') + (st.u ? 'text-decoration:underline;' : '');
+}
+const TOKEN = /\x1b\[([0-9;:]*)m|\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b.|([^\x1b]+)/g;
+// tmux carries attributes from one line to the next, so each line starts from the previous line's state.
+const FRESH = { fg: null, bg: null, b: 0, d: 0, it: 0, u: 0, inv: 0 };
+function stateAfter(raw, start) {
+  const st = { ...start };
+  for (const m of raw.matchAll(/\x1b\[([0-9;:]*)m/g)) applySgr(st, m[1]);
+  return st;
+}
+function lineHtml(raw, cursorX = -1, start = FRESH) {
+  const st = { ...start };
+  let html = '', run = '', runStyle = styleOf(st), col = 0;
+  const flush = () => { if (run) html += runStyle ? `<span style="${runStyle}">${esc(run)}</span>` : esc(run); run = ''; };
+  for (const m of raw.matchAll(TOKEN)) {
+    if (m[1] !== undefined) { applySgr(st, m[1]); const s = styleOf(st); if (s !== runStyle) { flush(); runStyle = s; } continue; }
+    if (m[2] === undefined) continue;
+    for (const ch of m[2]) {
+      if (col === cursorX) { flush(); html += `<span class="cur">${esc(ch)}</span>`; } else run += ch;
+      col++;
+    }
+  }
+  flush();
+  if (cursorX >= col) html += ' '.repeat(cursorX - col) + '<span class="cur"> </span>';
+  return html || ' ';
+}
+const plain = (raw) => raw.replace(TOKEN, (_, sgr, text) => text || '');
+
+const TV = { keys: [], lines: [], hist: null, full: true, fs: 0, lh: 0, cw: 0, info: null, ratio: 0 };
+function resetTerm() {
+  Object.assign(TV, { keys: [], lines: [], hist: null, full: true, info: null });
+  $('#termlines').innerHTML = '';
+}
+// Width of one monospace cell, relative to the font size.
+function cellRatio() {
+  if (TV.ratio) return TV.ratio;
+  const s = document.createElement('span');
+  s.style.cssText = 'position:absolute;visibility:hidden;font:100px Menlo,"SF Mono",ui-monospace,monospace;white-space:pre';
+  s.textContent = 'M'.repeat(50); document.body.appendChild(s);
+  TV.ratio = s.getBoundingClientRect().width / 5000 || 0.6; s.remove();
+  return TV.ratio;
+}
+
+// Append the new tmux history lines: the fetched tail overlaps what we already have.
+function mergeHistory(c) {
+  if (c.alt) { TV.hist = null; return; }
+  if (TV.full || !TV.hist) { TV.hist = c.history.slice(-5000); TV.full = false; TV.histSize = c.historySize; return; }
+  const chunk = c.history;
+  if (c.historySize < (TV.histSize || 0) && c.historySize < 1000) { TV.full = true; TV.histSize = c.historySize; return; } // cleared
+  TV.histSize = c.historySize;
+  if (!chunk.length) return;
+  const anchor = TV.hist.slice(-3);
+  if (anchor.length < 3) { TV.hist = chunk.slice(); return; }
+  for (let i = chunk.length - anchor.length; i >= 0; i--) {
+    if (anchor.every((a, j) => chunk[i + j] === a)) { TV.hist.push(...chunk.slice(i + anchor.length)); if (TV.hist.length > 5000) TV.hist.splice(0, TV.hist.length - 5000); return; }
+  }
+  TV.full = true; // more new lines than the tail we fetched: reload the whole history next time
 }
 
 function drawTerm(c) {
-  const t = W.term, box = $('#termbox');
-  if (c.command && c.command !== W.win.command) { W.win.command = c.command; $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${c.command}`; }
-  // Scale the font so the whole pane width fits the phone.
-  const fs = Math.max(6, Math.min(14, Math.floor(((box.clientWidth - 8) / (c.width * CHAR_W)) * 2) / 2));
-  if (t.options.fontSize !== fs) t.options.fontSize = fs;
-  if (t.cols !== c.width || t.rows !== c.height) t.resize(c.width, c.height);
-  const frame = c.screen.replace(/\n$/, '') + `@${c.cursor}`;
-  if (frame === W.last) return;
-  W.last = frame;
-  t.write('\x1b[H\x1b[2J\x1b[0m' + c.screen.replace(/\n$/, '').replace(/\n/g, '\r\n') + `\x1b[${c.cursor[1] + 1};${c.cursor[0] + 1}H`);
+  const box = $('#termbox'), host = $('#termlines');
+  if (c.command && c.command !== W.win.command) { W.win.command = c.command; setSub(); }
+  // Font so that the pane's width fits the phone.
+  const fs = Math.max(6, Math.min(14, Math.floor(((box.clientWidth - 12) / (c.width * cellRatio())) * 2) / 2));
+  if (fs !== TV.fs) {
+    TV.fs = fs; TV.lh = Math.round(fs * 1.25); TV.cw = fs * cellRatio();
+    host.style.fontSize = `${fs}px`; host.style.setProperty('--lh', `${TV.lh}px`);
+  }
+  let screen = c.screen.slice();
+  const hist = c.alt ? [] : TV.hist || [];
+  // Below the cursor, a regular screen is usually empty: don't show blank space under the prompt.
+  if (!c.alt) while (screen.length > c.cursor[1] + 1 && !plain(screen[screen.length - 1]).trim()) screen.pop();
+  const lines = hist.concat(screen);
+  const curRow = c.cursorVisible ? hist.length + c.cursor[1] : -1;
+  // Attribute state at the start of each line (history and screen are two captures, each starting fresh).
+  const starts = [];
+  let st = FRESH;
+  lines.forEach((l, i) => { if (i === hist.length) st = FRESH; starts.push(st); st = stateAfter(l, st); });
+  const keys = lines.map((l, i) => `${styleOf(starts[i])}\u0001${l}${i === curRow ? `\u0000${c.cursor[0]}` : ''}`);
+  TV.info = { alt: c.alt, mouse: c.mouse.any, sgr: c.mouse.sgr, screenStart: hist.length, width: c.width, height: c.height };
+
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - TV.lh * 1.5;
+  const prev = TV.keys;
+  // History trimmed at the top (5000 lines kept): drop those rows and keep the view where it was.
+  let k = 0;
+  if (prev.length && keys.length && prev[0] !== keys[0]) {
+    for (let j = 1; j < Math.min(prev.length - 1, 600); j++) if (prev[j] === keys[0] && prev[j + 1] === keys[1]) { k = j; break; }
+  }
+  if (k) {
+    for (let j = 0; j < k; j++) host.firstChild?.remove();
+    prev.splice(0, k);
+    if (!atBottom) box.scrollTop -= k * TV.lh;
+  }
+  for (let i = 0; i < keys.length; i++) {
+    if (prev[i] === keys[i]) continue;
+    const html = lineHtml(lines[i], i === curRow ? c.cursor[0] : -1, starts[i]);
+    if (i < host.children.length) host.children[i].innerHTML = html;
+    else { const d = document.createElement('div'); d.innerHTML = html; host.appendChild(d); }
+  }
+  while (host.children.length > keys.length) host.lastChild.remove();
+  TV.keys = keys;
+  if (atBottom || W.toBottom || c.alt) { box.scrollTop = box.scrollHeight; W.toBottom = false; }
+  $('#tobottom').hidden = c.alt || box.scrollTop + box.clientHeight >= box.scrollHeight - TV.lh * 1.5;
+}
+$('#termbox').addEventListener('scroll', () => {
+  const box = $('#termbox');
+  $('#tobottom').hidden = !!TV.info?.alt || box.scrollTop + box.clientHeight >= box.scrollHeight - TV.lh * 1.5;
+}, { passive: true });
+$('#tobottom').addEventListener('click', () => { const box = $('#termbox'); box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' }); });
+
+// ---------- gestures for programs on the alternate screen ----------
+// 1-based cell under a point of the screen part.
+function cellAt(x, y) {
+  const r = $('#termlines').getBoundingClientRect();
+  return { x: Math.max(1, Math.floor((x - r.left - 4) / TV.cw) + 1), y: Math.max(1, Math.floor((y - r.top - 4) / TV.lh) - TV.info.screenStart + 1) };
+}
+let wheelQueue = [], wheelTimer = null, pageAcc = 0;
+function scrollApp(lines, at) {
+  if (!TV.info) return;
+  if (TV.info.mouse) {
+    const up = lines > 0;
+    for (let i = 0; i < Math.min(Math.abs(lines), 20); i++) wheelQueue.push({ t: 'wheel', up, ...at });
+    if (!wheelTimer) wheelTimer = setTimeout(flushWheel, 40);
+  } else {
+    // No mouse support: whole pages, once the swipe covers half a screen.
+    pageAcc += lines;
+    const half = Math.max(3, Math.floor(TV.info.height / 2));
+    while (Math.abs(pageAcc) >= half) { press({ k: pageAcc > 0 ? 'PageUp' : 'PageDown' }); pageAcc -= Math.sign(pageAcc) * half; }
+  }
+}
+async function flushWheel() {
+  const events = wheelQueue; wheelQueue = []; wheelTimer = null;
+  if (events.length) await api(srv, 'mouse', { target: W.win, events, sgr: TV.info.sgr }).catch((e) => toast(e.message));
+  tick();
+}
+const appOwnsScroll = () => TV.info && (TV.info.alt || TV.info.mouse);
+let touch = null;
+$('#termbox').addEventListener('touchstart', (e) => {
+  const t = e.touches[0]; touch = { x0: t.clientX, y0: t.clientY, y: t.clientY, t0: Date.now(), last: Date.now(), v: 0, moved: false, acc: 0 };
+  momentum = null; touched();
+}, { passive: true });
+$('#termbox').addEventListener('touchmove', (e) => {
+  if (!touch) return;
+  const t = e.touches[0];
+  if (Math.abs(t.clientY - touch.y0) > 8 || Math.abs(t.clientX - touch.x0) > 8) touch.moved = true;
+  if (!appOwnsScroll()) return; // native scrolling
+  e.preventDefault();
+  const now = Date.now(), dy = t.clientY - touch.y;
+  touch.v = 0.7 * (dy / Math.max(1, now - touch.last)) + 0.3 * touch.v; touch.last = now; // px/ms, smoothed
+  touch.acc += dy; touch.y = t.clientY;
+  const steps = Math.trunc(touch.acc / TV.lh);
+  if (steps) { touch.acc -= steps * TV.lh; scrollApp(steps, cellAt(t.clientX, t.clientY)); }
+}, { passive: false });
+// After a flick, keep scrolling the program with a decaying speed, like a native list.
+let momentum = null;
+function glide(v, at) {
+  const m = momentum = { v, acc: 0, t: performance.now() };
+  const step = (now) => {
+    if (momentum !== m) return;
+    const dt = now - m.t; m.t = now;
+    m.acc += m.v * dt; m.v *= Math.pow(0.94, dt / 16);
+    const steps = Math.trunc(m.acc / TV.lh);
+    if (steps) { m.acc -= steps * TV.lh; scrollApp(steps, at); }
+    if (Math.abs(m.v) > 0.05) requestAnimationFrame(step); else momentum = null;
+  };
+  requestAnimationFrame(step);
+}
+let lastTouchEnd = 0;
+$('#termbox').addEventListener('touchend', (e) => {
+  lastTouchEnd = Date.now();
+  if (touch && touch.moved && appOwnsScroll() && Math.abs(touch.v) > 0.3 && Date.now() - touch.last < 80) {
+    const t = e.changedTouches[0]; glide(touch.v, cellAt(t.clientX, t.clientY));
+  }
+  if (touch && !touch.moved && Date.now() - touch.t0 < 400 && TV.info?.mouse) {
+    const t = e.changedTouches[0];
+    api(srv, 'mouse', { target: W.win, events: [{ t: 'click', ...cellAt(t.clientX, t.clientY) }], sgr: TV.info.sgr }).then(tick).catch((err) => toast(err.message));
+  }
+  touch = null;
+}, { passive: true });
+$('#termbox').addEventListener('wheel', (e) => {
+  if (!appOwnsScroll()) return;
+  e.preventDefault();
+  scrollApp(-Math.sign(e.deltaY) * Math.max(1, Math.round(Math.abs(e.deltaY) / (TV.lh || 16))), cellAt(e.clientX, e.clientY));
+}, { passive: false });
+$('#termbox').addEventListener('click', (e) => {
+  // Taps already sent their click from touchend; this is for a real mouse.
+  if (TV.info?.mouse && Date.now() - lastTouchEnd > 700) api(srv, 'mouse', { target: W.win, events: [{ t: 'click', ...cellAt(e.clientX, e.clientY) }], sgr: TV.info.sgr }).then(tick).catch(() => {});
+  $('#termbox').focus({ preventScroll: true });
+});
+
+// Hardware keyboard (iPad, desktop) while the terminal has focus.
+const KEYMAP = { Enter: 'Enter', Backspace: 'BSpace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left',
+  ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Delete: 'DC', Insert: 'IC' };
+let sendChain = Promise.resolve();
+$('#termbox').addEventListener('keydown', (e) => {
+  if (e.metaKey) return;
+  let key = KEYMAP[e.key] || (/^F\d{1,2}$/.test(e.key) ? e.key : null);
+  if (!key && e.key.length === 1 && (e.ctrlKey || e.altKey)) key = e.key === ' ' ? 'Space' : e.key.toLowerCase();
+  let op;
+  if (key) {
+    if (e.ctrlKey) W.mods.add('C'); if (e.altKey) W.mods.add('M'); if (e.shiftKey && key.length > 1) W.mods.add('S');
+    op = { keys: [withMods(key)] };
+  } else if (e.key.length === 1) op = W.mods.size ? { keys: [withMods(e.key)] } : { text: e.key };
+  else return;
+  e.preventDefault();
+  sendChain = sendChain.then(() => api(srv, op.keys ? 'keys' : 'send', { target: W.win, ...(op.keys ? { keys: op.keys } : { text: op.text, enter: false }) })
+    .then(tick).catch((err) => toast(err.message)));
+});
+
+// ---------- WeeChat: buffer list from the buflist bar, current buffer and activity from the status bar ----------
+function parseBuffers(screen) {
+  const lines = screen.replace(ANSI_RE, '').split('\n');
+  const found = [];
+  for (const l of lines) {
+    const m = /^\s*(\d+)\.\s*(.*?)\s*[│|]/.exec(l);
+    if (m && m[2]) found.push({ n: Number(m[1]), name: m[2].replace(/^[\s#&+]*(?=\S)/, (x) => x.trim()) });
+  }
+  const status = lines.map((l) => /\[\d+\]\s+\[[^\]]*\]\s+(\d+):/.exec(l)).find(Boolean);
+  const hot = lines.map((l) => /\[(?:H|Act):\s*([^\]]+)\]/.exec(l)).find(Boolean);
+  const hotSet = new Set(hot ? hot[1].split(/[,\s]+/).map((x) => parseInt(x, 10)).filter(Boolean) : []);
+  if (found.length) W.buffers = found;
+  W.buffers.forEach((b) => { b.current = status ? b.n === Number(status[1]) : false; b.hot = hotSet.has(b.n) && !b.current; });
 }
 
-// ---------- chat rendering of agent TUIs ----------
+// ---------- chat ----------
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
 const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g;
 const RULE = /^\s*[╭┌╰└]?[─━═-]{8,}[╮┐╯┘]?\s*$/;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
+const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·]\s*(Working|Thinking|Running|Generating|Esc to|Pondering)/i;
+const LAUNCH = /(?:\$|#|%|❯)\s*(pi|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
 function cleanScreen(screen, width = 80) {
   let lines = screen.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
   while (lines.length && !lines[lines.length - 1]) lines.pop();
   // Drop the TUI's bottom chrome (input box, footer): cut at the first rule among the last 6 lines.
   const from = Math.max(0, lines.length - 6);
-  const cutAt = lines.findIndex((l, i) => i >= from && RULE.test(l));
+  const cutAt = lines.findIndex((l, i) => i >= from && RULE.test(l) && !SPIN.test(l));
   if (cutAt > 0) lines = lines.slice(0, cutAt);
-  lines = lines.filter((l) => !RULE.test(l)).map((l) => l.replace(BOX_EDGE, '').replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s.*$/, ''));
+  lines = lines.filter((l) => !RULE.test(l) && !SPIN.test(l)).map((l) => l.replace(BOX_EDGE, ''));
   // Undo the terminal's hard wrapping so prose reflows in a bubble.
   const out = [];
   for (const l of lines) {
@@ -1005,90 +1641,146 @@ function cleanScreen(screen, width = 80) {
   }
   return out.map((o) => o.text).join('\n').replace(/\n{3,}/g, '\n\n').trim().split('\n');
 }
-function since(base, cur) {
-  if (!base) return cur.slice(-80);
-  const anchor = base.filter(Boolean).slice(-3);
-  if (!anchor.length) return cur;
-  for (let i = cur.length - anchor.length; i >= 0; i--) {
-    if (anchor.every((a, j) => cur[i + j] === a)) return cur.slice(i + anchor.length);
-  }
-  return cur.slice(-80);
+const working = () => !!W.screen && SPIN.test(W.screen.screen.replace(ANSI_RE, ''));
+const stripPrompt = (l) => l.replace(/^\s*[>❯›]\s*/, '').trim();
+
+// Small markdown: code blocks, inline code, bold, headings. Input is escaped first.
+function md(text) {
+  return esc(text || '')
+    .replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre>${c.replace(/\n$/, '')}</pre>`)
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+    .replace(/^#{1,6} (.+)$/gm, '<b>$1</b>');
 }
-function drawChat(c) {
-  const hist = state.chats[winKey()] || [];
-  if (c) {
-    const lines = cleanScreen(c.screen, c.width);
-    W.lastLines = lines;
-    const lastUser = [...hist].reverse().find((m) => m.role === 'user');
-    W.live = since(W.baseline, lines)
-      .filter((l) => !lastUser || l.replace(/^\s*[>❯›]\s*/, '').trim() !== lastUser.text.trim())
-      .join('\n').trim();
+const fold = (id, cls, summary, body) => `<details class="${cls}" data-id="${esc(id)}"${W.open.has(id) ? ' open' : ''}><summary>${summary}</summary>${body}</details>`;
+const toolLine = (t) => {
+  let a = t.args || '';
+  try { const o = JSON.parse(a); a = o.command || o.path || o.file_path || o.pattern || o.url || Object.values(o)[0] || ''; } catch {}
+  return `${t.done ? (t.isError ? '✗' : '✓') : '…'} ${esc(t.name)} · ${esc(String(a).slice(0, 80))}`;
+};
+
+function renderPi() {
+  const msgs = W.pi.messages;
+  const live = working();
+  const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
+  if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
+  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens dans pi</div>` : '';
+  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation pi</b>Écris ton premier message.</div>`;
+  for (const m of msgs) {
+    if (m.role === 'user') html += `<div class="msg user">${esc(m.text)}</div>`;
+    else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
+    else if (m.role === 'bash') html += `<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`;
+    else if (m.role === 'assistant') {
+      let body = '';
+      if (m.thinking) body += fold(`${m.id}:t`, 'think', '▸ réflexion', `<pre>${esc(m.thinking)}</pre>`);
+      if (m.text) body += `<div class="text">${md(m.text)}</div>`;
+      for (const t of m.tools || []) {
+        body += fold(`${m.id}:${t.id}`, `tool${t.isError ? ' err' : t.done ? '' : ' run'}`, toolLine(t),
+          `<pre>${esc(t.args)}${t.output ? `\n\n${esc(t.output)}` : ''}</pre>`);
+      }
+      if (m.error) body += `<div class="err-line">Erreur : ${esc(m.error)}</div>`;
+      if (m.aborted) body += `<div class="err-line">Interrompu</div>`;
+      if (body) html += `<div class="pmsg assistant">${body}</div>`;
+    }
   }
-  const html = hist.map(bubble).join('') + (W.live ? bubble({ role: 'agent', text: W.live }, true) : '');
+  if (W.pending) html += `<div class="msg user pending">${esc(W.pending)}</div>`;
+  if (live) {
+    // While pi streams, the reply isn't in the session file yet: show what the screen has after the last prompt.
+    const lines = cleanScreen(W.screen.screen, W.screen.width);
+    const anchor = W.pending || lastUser?.text || '';
+    let i = anchor ? lines.map(stripPrompt).lastIndexOf(anchor.trim().split('\n').pop().trim()) : -1;
+    const partial = i >= 0 ? lines.slice(i + 1).join('\n').trim() : '';
+    html += `<div class="pmsg assistant">${partial ? `<div class="text">${md(partial)}</div>` : ''}<span class="typing"><i></i><i></i><i></i></span></div>`;
+  }
+  return html;
+}
+
+// Any other agent: the cleaned transcript since it was launched, split on the messages sent from this app.
+function renderGeneric() {
+  if (!W.screen) return '';
+  let lines = cleanScreen(W.screen.screen, W.screen.width);
+  let start = -1;
+  lines.forEach((l, i) => { if (LAUNCH.test(l)) start = i; });
+  if (start >= 0) lines = lines.slice(start + 1);
+  const sent = new Set(W.sent.map((t) => t.trim()));
+  let html = '', block = [];
+  const flush = () => {
+    const text = block.join('\n').trim(); block = [];
+    if (text) html += `<div class="msg agent"><span class="who">${esc(W.win.name)}</span>${esc(text)}</div>`;
+  };
+  for (const l of lines) {
+    if (sent.has(stripPrompt(l)) && stripPrompt(l)) { flush(); html += `<div class="msg user">${esc(stripPrompt(l))}</div>`; }
+    else block.push(l);
+  }
+  flush();
+  if (working()) html += `<div class="pmsg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  return html || '<div class="empty">Écris un message : il est envoyé à l\'agent dans la fenêtre tmux.</div>';
+}
+
+function drawChat() {
+  let html;
+  if (W.profile.chat === 'pi' && W.pi) html = renderPi();
+  else if (W.profile.chat === 'pi' && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
+  else html = (W.profile.chat === 'pi' ? '<div class="pnote">Session pi introuvable : vue de l\'écran</div>' : '') + renderGeneric();
   if (html === W.last) return;
   const box = $('#chatbox');
-  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
-  W.last = html; box.innerHTML = html || '<div class="empty">Écris un message : il est envoyé à l\'agent dans la fenêtre tmux.</div>';
-  if (stick) box.scrollTop = box.scrollHeight;
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
+  W.last = html; box.innerHTML = html;
+  if (stick || W.toBottom) box.scrollTop = box.scrollHeight;
+  if (W.pi || W.piState === 'missing') W.toBottom = false;
 }
-function bubble(m, live) {
-  if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
-  const body = esc(m.text).replace(/^(\s*[●⏺›•]\s.*)$/gm, '<span class="tool">$1</span>');
-  return `<div class="msg agent${live ? ' live' : ''}"><span class="who">${esc(W.win.name)}${live ? ' · en direct' : ''}</span>${body}</div>`;
-}
+// Remember which tool outputs / thoughts are expanded across refreshes.
+$('#chatbox').addEventListener('toggle', (e) => {
+  const id = e.target.dataset?.id; if (!id) return;
+  e.target.open ? W.open.add(id) : W.open.delete(id);
+  W.last = '';
+}, true);
+
+// ---------- dock: fold the keys away to give the terminal all the height ----------
+try { $('#dock').classList.toggle('folded', localStorage.getItem('tmuxpocket.dock') === 'folded'); } catch {}
+$('#dock-handle').addEventListener('click', () => {
+  const folded = $('#dock').classList.toggle('folded');
+  try { localStorage.setItem('tmuxpocket.dock', folded ? 'folded' : 'open'); } catch {}
+  if (W.mode === 'term') requestAnimationFrame(() => fitToPhone().then(tick));
+});
 
 // ---------- input ----------
 const input = $('#input');
-input.addEventListener('input', () => { input.style.height = '40px'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
+input.addEventListener('input', () => {
+  // A sticky modifier + one typed character sends that key combination right away (e.g. ctrl then "o").
+  if (W.mods.size && input.value.length === 1) {
+    const ch = input.value; input.value = '';
+    return press({ k: ch === ' ' ? 'Space' : ch });
+  }
+  input.style.height = '44px'; input.style.height = Math.min(132, input.scrollHeight) + 'px';
+  setStatus(W.status);
+});
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
 $('#composer').addEventListener('submit', async (e) => {
   e.preventDefault();
+  touched();
+  if ($('#send').classList.contains('stop')) return press({ k: W.profile.stop });
   const text = input.value;
-  input.value = ''; input.style.height = '40px';
+  input.value = ''; input.style.height = '44px';
   try {
     if (!text) return await api(srv, 'keys', { target: W.win, keys: ['Enter'] });
     if (W.mode === 'chat') {
-      const k = winKey(); const hist = (state.chats[k] ||= []);
-      if (W.live) hist.push({ role: 'agent', text: W.live });
-      hist.push({ role: 'user', text, ts: Date.now() });
-      if (hist.length > 200) hist.splice(0, hist.length - 200);
-      W.baseline = W.lastLines; W.live = ''; save(); drawChat(null);
+      W.pending = text;
+      W.sent = [...W.sent, text].slice(-50);
+      try { localStorage.setItem(`tmuxpocket.sent.${winKey()}`, JSON.stringify(W.sent)); } catch {}
+      W.last = ''; drawChat();
+      $('#chatbox').scrollTop = $('#chatbox').scrollHeight;
     }
     await api(srv, 'send', { target: W.win, text, enter: true });
     tick();
   } catch (err) { toast(err.message); }
 });
-$('#keybar').addEventListener('click', async (e) => {
-  const b = e.target.closest('button'); if (!b) return;
-  try {
-    if (b.dataset.keys) await api(srv, 'keys', { target: W.win, keys: b.dataset.keys.split(' ') });
-    else await api(srv, 'send', { target: W.win, text: b.dataset.text, enter: false });
-    tick();
-  } catch (err) { toast(err.message); }
-});
-
-// Typing directly in the terminal (hardware keyboard or tap-to-focus): map xterm bytes to tmux keys.
-const SEQ = { '\r': 'Enter', '\x7f': 'BSpace', '\b': 'BSpace', '\t': 'Tab', '\x1b': 'Escape', '\x1b[A': 'Up', '\x1b[B': 'Down',
-  '\x1b[C': 'Right', '\x1b[D': 'Left', '\x1b[Z': 'BTab', '\x1b[5~': 'PageUp', '\x1b[6~': 'PageDown', '\x1b[H': 'Home', '\x1b[F': 'End', '\x1b[3~': 'DC' };
-let sendChain = Promise.resolve();
-function onTermData(d) {
-  const ops = [];
-  for (const tok of d.match(/\x1b\[[0-9;]*[~A-Z]|\x1b|[\x00-\x1f\x7f]|[^\x00-\x1f\x7f\x1b]+/g) || []) {
-    if (SEQ[tok]) ops.push({ keys: [SEQ[tok]] });
-    else if (tok.length === 1 && tok.charCodeAt(0) < 27) ops.push({ keys: ['C-' + String.fromCharCode(96 + tok.charCodeAt(0))] });
-    else if (!tok.startsWith('\x1b')) ops.push({ text: tok });
-  }
-  sendChain = sendChain.then(async () => {
-    for (const o of ops) await api(srv, o.keys ? 'keys' : 'send', { target: W.win, ...(o.keys ? { keys: o.keys } : { text: o.text, enter: false }) }).catch((e) => toast(e.message));
-    tick();
-  });
-}
 
 $('#win-menu').addEventListener('click', () => {
   openSheet(`<h3>${esc(W.win.name)} <small style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(W.win.session)}:${W.win.window}</small></h3>
     <div class="list menu">
       <button class="row" data-a="fit"><div class="main"><b>${srv.fit === false ? 'Adapter à l\'iPhone' : 'Ne plus adapter (taille du serveur)'}</b><small>tmux resize-window</small></div></button>
-      <button class="row" data-a="clear"><div class="main"><b>Effacer l'historique du chat</b><small>local uniquement</small></div></button>
+      <button class="row" data-a="keys"><div class="main"><b>Toutes les touches</b><small>lettres, F1–F12, symboles, modificateurs</small></div></button>
       <button class="row" data-a="kill"><div class="main"><b style="color:var(--danger)">Fermer la fenêtre</b><small>tmux kill-window</small></div></button>
     </div>`, (el) => {
     $$('.row', el).forEach((r) => r.addEventListener('click', async () => {
@@ -1099,7 +1791,7 @@ $('#win-menu').addEventListener('click', () => {
         srv.fit = srv.fit === false; save();
         if (srv.fit) await fitToPhone(); else { await api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {}); W.fitted = false; }
         W.last = ''; tick();
-      } else if (a === 'clear') { delete state.chats[winKey()]; W.baseline = W.lastLines; W.live = ''; save(); W.last = ''; drawChat(null); }
+      } else if (a === 'keys') setTimeout(openMoreKeys); // after this click has finished
       else if (a === 'kill') {
         try { await api(srv, 'kill', { target: W.win }); W.fitted = false; back(); } catch (e) { toast(e.message); }
       }

@@ -10,10 +10,15 @@ It is self-contained: the agent needs nothing else.
 | Who | What | Time |
 |---|---|---|
 | You | Read [What this install touches](#what-this-install-touches) and [Privileges](#privileges-what-the-agent-can-do-as-root) | 3 min |
-| You | [Human setup](#human-setup-once): install the audited installer and its single sudo rule, create the DNS record | 2 min |
-| You | Give the [prompt](#prompt-for-your-agent) to your agent | — |
-| Agent | Runs the [steps](#steps-for-the-agent), stops and asks you on **STOP** | 5 min |
-| You | Read the token yourself on the server and log in from your iPhone | 1 min |
+| You | Give the [prompt](#prompt-for-your-agent) to your agent, with your domain | — |
+| Agent | Installs the audited installer (if it has sudo), creates the DNS record (if you gave it API access), runs the [steps](#steps-for-the-agent), stops and asks you on **STOP** | 5 min |
+| You | Read the token on the server (one command) and log in from your iPhone | 1 min |
+
+Two ways to grant root, pick one:
+- **Your agent has sudo** (fewest manual steps): it installs the installer itself in [step S](#step-s--install-the-installer-agent-with-sudo-only)
+  and then uses only that installer. Nothing for you to do by hand.
+- **Your agent must not have sudo**: you do the [restricted setup](#restricted-setup-agent-without-sudo) once (2 minutes):
+  the agent then gets one sudo rule, for the installer only.
 
 Supported: Ubuntu 20.04, 22.04, 24.04 or newer, and Debian 12 or newer, on x86_64 or arm64, with systemd.
 
@@ -89,9 +94,10 @@ If your agent already has full sudo, skip the rule: it runs the same installer c
 
 ---
 
-## Human setup (once)
+## Restricted setup (agent without sudo)
 
-Run this yourself, with your own sudo. Pick the commit you review; the installer at that commit is what runs as root.
+Skip this if your agent has sudo. Otherwise run it once yourself (or have an agent with sudo run it). Pick the commit you
+review; the installer at that commit is what runs as root.
 
 ```bash
 REF=<commit you reviewed>                 # e.g. the latest commit hash on GitHub
@@ -108,9 +114,6 @@ sudo -l -U "$AGENT_USER"                   # must list /usr/local/sbin/tmux-pock
 rm -rf /tmp/tmux-pocket-review /tmp/tmux-pocket.sudoers
 ```
 
-Then create a DNS **A** record for your domain (for example `pocket.example.com`) pointing to this server, or allow
-your agent to do it.
-
 When the install is done, you can remove `/etc/sudoers.d/tmux-pocket`; keep it if you want the agent to run updates.
 
 ---
@@ -122,7 +125,8 @@ Install tmux-pocket on this server by following deploy/INSTALL-SERVER.md from
 https://github.com/tsua0002/tmux-pocket at commit <REF>, section "Steps for the agent", exactly.
 DOMAIN=pocket.example.com
 REF=<REF>
-You may only use sudo as: sudo -n /usr/local/sbin/tmux-pocket-install <command>.
+If you have sudo, start with step S. After it, use sudo only as: sudo -n /usr/local/sbin/tmux-pocket-install <command>.
+If the DNS record for DOMAIN is missing and you have DNS API access, create the A record to this server's public IPv4.
 Stop and ask me whenever the guide says STOP. Never show me or log BRIDGE_TOKEN or the private key.
 ```
 
@@ -132,8 +136,8 @@ Stop and ask me whenever the guide says STOP. Never show me or log BRIDGE_TOKEN 
 
 ### Rules
 
-1. Use sudo **only** as `sudo -n /usr/local/sbin/tmux-pocket-install <command>`. Never try another sudo command,
-   never edit files under `/etc`, `/opt` or `/var/lib` yourself. If a sudo call is refused, **STOP**.
+1. Apart from step S, use sudo **only** as `sudo -n /usr/local/sbin/tmux-pocket-install <command>`. Never edit files
+   under `/etc`, `/opt` or `/var/lib` yourself. If a sudo call is refused, **STOP**.
 2. Run the steps in order. Every installer command ends with `<step>: OK` or prints `ERROR: …` and stops. On `ERROR`
    or any result different from **Verify**, **STOP**: report the command and its output. Do not improvise a fix.
 3. Never read, print or log `/etc/tmux-pocket.env` or `/var/lib/tmux-pocket/id_ed25519` (you can't, by design).
@@ -146,21 +150,39 @@ REF=<REF>
 I="sudo -n /usr/local/sbin/tmux-pocket-install"
 ```
 
+### Step S — Install the installer (agent with sudo only)
+
+Skip this step if `sudo -n -l` already lists `/usr/local/sbin/tmux-pocket-install` (restricted setup done) or if you
+have no sudo (then **STOP** and ask the human for the [restricted setup](#restricted-setup-agent-without-sudo)).
+
+```bash
+sudo -n true && echo sudo-ok
+rm -rf /tmp/tmux-pocket-src && git clone --quiet https://github.com/tsua0002/tmux-pocket /tmp/tmux-pocket-src
+git -C /tmp/tmux-pocket-src checkout --quiet "$REF" && git -C /tmp/tmux-pocket-src rev-parse HEAD
+sudo install -m 755 -o root -g root /tmp/tmux-pocket-src/deploy/tmux-pocket-install /usr/local/sbin/tmux-pocket-install
+rm -rf /tmp/tmux-pocket-src
+ls -l /usr/local/sbin/tmux-pocket-install
+```
+
+**Verify:** `sudo-ok`, the commit, then `-rwxr-xr-x 1 root root … /usr/local/sbin/tmux-pocket-install`.
+
 ### Step 0 — Access and preflight
 
 ```bash
-sudo -n -l | grep -F /usr/local/sbin/tmux-pocket-install
+$I help | head -1
 $I preflight
 getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u
 hostname -I
 ```
 
 **Verify**
-- The first command prints the rule. Otherwise **STOP**: the human setup isn't done.
+- The first command prints `Usage: sudo tmux-pocket-install <command> [args]`. Otherwise **STOP**: neither step S
+  nor the restricted setup is done.
 - `preflight: OK`. On `preflight: STOP (…)`, **STOP** and report the reasons. A line saying ports were not checked is
   fine at this point: step 1 installs the tool, then checks again.
-- `$DOMAIN` resolves to an IPv4 address. If it doesn't match one of this machine's addresses (common behind NAT or on
-  clouds), **STOP** and ask the human to confirm the DNS A record points to this server.
+- `$DOMAIN` resolves to an IPv4 address. If it doesn't, and the human gave you DNS API access, create the A record to
+  this server's public IPv4 and wait until it resolves; otherwise **STOP** and ask for it. If it resolves to an address
+  that isn't one of this machine's (common behind NAT or on clouds), **STOP** and ask the human to confirm.
 
 ### Step 1 — Packages
 
@@ -241,7 +263,7 @@ tmux-pocket is installed.
 - Checked: service active, HTTPS + HSTS, HTTP redirects, API needs the token.
 - To log in, read the token yourself on the server: sudo grep BRIDGE_TOKEN /etc/tmux-pocket.env
 - Next: authorize each server you want to reach (deploy/INSTALL-SERVER.md, "Authorize a server").
-- You can now remove /etc/sudoers.d/tmux-pocket, or keep it for updates.
+- If a restricted sudo rule was set up: you can remove /etc/sudoers.d/tmux-pocket, or keep it for updates.
 ```
 
 ---

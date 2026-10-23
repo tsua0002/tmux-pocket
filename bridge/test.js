@@ -96,10 +96,27 @@ test('new window, list, send, capture, keys, resize, kill', async () => {
   cap = await ops.capture(conn, { target: w, history: 100 });
   assert.match(cap.screen, /quote'ok/);
 
-  await ops.keys(conn, { target: w, keys: ['C-c', 'Enter; rm -rf /'] }); // unsafe key is dropped
+  await ops.keys(conn, { target: w, keys: ['C-c', 'Enter; rm -rf /', '$(id)'] }); // unsafe keys are dropped
+  await ops.keys(conn, { target: w, keys: ['M-<', 'C-M-Left', 'S-Up', 'F5', '~', "'"] }); // modifiers and symbols pass
+  await assert.rejects(ops.keys(conn, { target: w, keys: ['; ls'] }), /no valid key/);
   await ops.resize(conn, { target: w, cols: 50, rows: 30 });
   cap = await ops.capture(conn, { target: w });
   assert.strictEqual(cap.width, 50);
+
+  // screen: history lines and screen separately; history only grows from the bottom
+  for (let i = 0; i < 40; i++) await ops.send(conn, { target: w2, text: `echo line-${i}` });
+  await new Promise((r) => setTimeout(r, 600));
+  const sc = await ops.screen(conn, { target: w2, tail: 500 });
+  assert.ok(sc.historySize > 0 && sc.history.length === Math.min(500, sc.historySize));
+  assert.strictEqual(sc.screen.length, sc.height);
+  assert.ok(!sc.alt && typeof sc.mouse.sgr === 'boolean');
+  assert.match([...sc.history, ...sc.screen].join('\n'), /line-0[\s\S]*line-39/);
+  assert.strictEqual((await ops.screen(conn, { target: w2, tail: 0 })).history.length, 0);
+  await ops.mouse(conn, { target: w2, events: [{ t: 'wheel', up: true, x: 5, y: 5 }, { t: 'click', x: 'x;rm', y: -3 }] });
+
+  const pv = await ops.previews(conn, { lines: 3 });
+  assert.ok(pv.previews[`${session}:${w2.window}`].length <= 3);
+  assert.match(pv.previews[`${session}:${w2.window}`].join('\n'), /line-39/);
 
   await ops.kill(conn, { target: w2 });
   assert.strictEqual((await ops.list(conn)).windows.length, 1);
