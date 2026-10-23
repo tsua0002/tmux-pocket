@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0d10">
+<title>tmux pocket</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<style>
+:root {
+  --bg: #f2f2f7; --surface: #ffffff; --surface-2: #e9e9ef; --text: #111114; --muted: #6b6b75;
+  --line: #d9d9e0; --accent: #0a84ff; --accent-text: #ffffff; --danger: #ff3b30; --ok: #30b158;
+  --agent: #8e5cf7; --term-bg: #0b0d10; --bubble-user: #0a84ff; --bubble-agent: #ffffff;
+  --radius: 14px; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --app-h: 100dvh;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0d10; --surface: #17191e; --surface-2: #22252c; --text: #f2f2f5; --muted: #8d8f99;
+    --line: #2a2d35; --bubble-agent: #1d2026; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0d10; --surface: #17191e; --surface-2: #22252c; --text: #f2f2f5; --muted: #8d8f99;
+  --line: #2a2d35; --bubble-agent: #1d2026; color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { overscroll-behavior: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input, textarea, select { font: inherit; color: var(--text); }
+
+/* ---------- phone frame on desktop (simulation) ---------- */
+#stage { height: var(--app-h); display: flex; justify-content: center; align-items: center; gap: 40px; }
+#app { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;
+  background: var(--bg); overflow: hidden; }
+#aside { display: none; max-width: 300px; color: var(--muted); font-size: 14px; }
+#aside h1 { color: var(--text); font-size: 22px; margin: 0 0 8px; }
+#aside code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+@media (min-width: 760px) and (min-height: 700px) {
+  #app { width: 393px; height: min(852px, calc(100vh - 40px)); border-radius: 44px;
+    border: 10px solid #1b1c20; box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+  #aside { display: block; }
+  :root { --safe-top: 34px; }
+}
+
+/* ---------- chrome ---------- */
+header.bar { display: flex; align-items: center; gap: 8px; min-height: 52px;
+  padding: calc(var(--safe-top, env(safe-area-inset-top)) + 6px) 12px 6px;
+  background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
+header.bar .title { flex: 1; min-width: 0; }
+header.bar .title b { display: block; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.bar .title small { display: block; color: var(--muted); font-size: 12px; font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { min-width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center;
+  font-size: 22px; color: var(--accent); }
+.icon-btn:active { background: var(--surface-2); }
+.view { flex: 1; min-height: 0; display: none; flex-direction: column; }
+.view.on { display: flex; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 12px 100px; }
+
+/* ---------- lists ---------- */
+.group-title { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 6px 6px; }
+.list { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; width: 100%; text-align: left;
+  border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row:active { background: var(--surface-2); }
+.row .main { flex: 1; min-width: 0; }
+.row .main b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .main small { display: block; color: var(--muted); font-size: 13px; font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.idx { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none;
+  background: var(--surface-2); font-family: var(--mono); font-weight: 600; font-size: 14px; position: relative; }
+.idx.agent { background: var(--agent); color: #fff; }
+.idx .dot { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 5px;
+  background: var(--ok); border: 2px solid var(--surface); }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); flex: none; }
+.chip.agent { background: color-mix(in srgb, var(--agent) 18%, transparent); color: var(--agent); }
+.chev { color: var(--muted); font-size: 20px; flex: none; }
+.empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+.empty b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+
+.fab { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 54px; padding: 0 20px;
+  border-radius: 27px; background: var(--accent); color: var(--accent-text); font-weight: 600;
+  display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(10,132,255,.35); z-index: 5; }
+.fab span { font-size: 26px; line-height: 1; margin-top: -2px; }
+
+/* ---------- forms ---------- */
+.field { display: block; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.field:last-child { border-bottom: 0; }
+.field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.field input, .field textarea, .field select { width: 100%; border: 0; background: transparent; outline: none; padding: 2px 0; }
+.field textarea { font-family: var(--mono); font-size: 12px; min-height: 70px; resize: vertical; }
+.field.check { display: flex; align-items: center; justify-content: space-between; }
+.field.check > span { margin: 0; font-size: 16px; color: var(--text); }
+.field.check input { width: auto; transform: scale(1.3); }
+.seg { display: flex; background: var(--surface-2); border-radius: 9px; padding: 2px; }
+.seg button { flex: 1; padding: 6px 10px; border-radius: 7px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+details.adv { margin-top: 14px; }
+details.adv summary { color: var(--accent); padding: 8px 6px; cursor: pointer; }
+.btn { display: block; width: 100%; padding: 14px; border-radius: 12px; background: var(--accent); color: var(--accent-text);
+  font-weight: 600; text-align: center; margin-top: 14px; }
+.btn.ghost { background: var(--surface); color: var(--accent); }
+.btn.danger { background: var(--surface); color: var(--danger); }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 6px 0; }
+.pubkey { font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; padding: 8px 10px;
+  border-radius: 8px; background: var(--surface-2); user-select: all; }
+
+/* ---------- sheet ---------- */
+.sheet-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-end; z-index: 20; }
+.sheet-wrap.on { display: flex; }
+.sheet { width: 100%; background: var(--surface); border-radius: 20px 20px 0 0; padding: 10px 16px calc(env(safe-area-inset-bottom) + 16px);
+  max-height: 85%; overflow-y: auto; animation: up .18s ease-out; }
+@keyframes up { from { transform: translateY(40px); opacity: .5; } }
+.grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 10px; }
+.sheet h3 { margin: 4px 0 12px; font-size: 18px; }
+.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.preset { background: var(--surface-2); border-radius: 14px; padding: 14px 6px 10px; text-align: center; }
+.preset:active { transform: scale(.97); }
+.preset .glyph { display: block; font-family: var(--mono); font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+.preset small { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.chips button { padding: 6px 12px; border-radius: 99px; background: var(--surface-2); font-size: 14px; font-family: var(--mono); }
+.chips button.on { background: var(--accent); color: var(--accent-text); }
+.inline { display: flex; gap: 8px; margin-top: 12px; }
+.inline input { flex: 1; min-width: 0; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-family: var(--mono); font-size: 14px; }
+.inline button { padding: 0 16px; border-radius: 12px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.menu .row { border-radius: 0; }
+
+/* ---------- window view ---------- */
+#v-window header .seg { width: 150px; flex: none; }
+#termbox { flex: 1; min-height: 0; background: var(--term-bg); overflow: auto; position: relative; }
+#termbox .xterm { padding: 4px; }
+#termbox .xterm-viewport { overflow-y: hidden !important; }
+#chatbox { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: none; }
+.msg { max-width: 88%; margin: 0 0 10px; padding: 9px 12px; border-radius: 18px; white-space: pre-wrap; word-break: break-word; font-size: 15px; }
+.msg.user { margin-left: auto; background: var(--bubble-user); color: #fff; border-bottom-right-radius: 6px; }
+.msg.agent { background: var(--bubble-agent); border: 1px solid var(--line); border-bottom-left-radius: 6px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.45; max-width: 100%; }
+.msg.agent.live { border-color: color-mix(in srgb, var(--agent) 60%, transparent); }
+.msg .tool { color: var(--ok); }
+.msg .who { display: block; font-family: -apple-system, sans-serif; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.keybar { display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; background: var(--surface); border-top: 1px solid var(--line); flex: none; scrollbar-width: none; }
+.keybar button { flex: none; min-width: 42px; height: 34px; padding: 0 10px; border-radius: 8px; background: var(--surface-2);
+  font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.keybar button:active { background: var(--accent); color: #fff; }
+.composer { display: flex; gap: 8px; padding: 6px 8px calc(env(safe-area-inset-bottom) + 8px); background: var(--surface); flex: none; }
+.composer textarea { flex: 1; min-width: 0; resize: none; height: 40px; max-height: 120px; padding: 9px 14px; border-radius: 20px;
+  border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 16px; line-height: 20px; }
+.composer button { width: 40px; height: 40px; border-radius: 20px; background: var(--accent); color: #fff; font-size: 20px; flex: none; }
+.status { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top, env(safe-area-inset-top)) + 62px);
+  background: var(--danger); color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 99px; z-index: 30;
+  max-width: 90%; display: none; }
+.status.on { display: block; }
+.status.ok { background: var(--ok); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <aside id="aside">
+    <h1>tmux pocket</h1>
+    <p>Prototype iPhone : gestionnaire de sessions/fenêtres tmux via SSH + chat natif avec les agents (pi, claude, codex…).</p>
+    <p><b>Démo (simulation)</b> fonctionne sans serveur : fenêtres pi, claude, htop, logs, shell. Tape <code>pi</code> ou <code>tmux ls</code> dans le shell.</p>
+    <p>Serveur réel : <code>cd tmux-pocket/bridge && npm i && npm start</code> puis ouvre <code>http://127.0.0.1:8022</code>.</p>
+  </aside>
+  <div id="app">
+
+    <!-- Servers -->
+    <section class="view" id="v-servers">
+      <header class="bar">
+        <div class="title"><b>Serveurs</b><small>tmux pocket</small></div>
+        <button class="icon-btn" id="add-server" aria-label="Ajouter un serveur">＋</button>
+      </header>
+      <div class="scroll" id="servers"></div>
+    </section>
+
+    <!-- Server form -->
+    <section class="view" id="v-form">
+      <header class="bar">
+        <button class="icon-btn back" aria-label="Retour">‹</button>
+        <div class="title"><b id="form-title">Nouveau serveur</b></div>
+      </header>
+      <form class="scroll" id="form" autocomplete="off">
+        <div class="list">
+          <label class="field"><span>Nom</span><input name="name" placeholder="mon-vps"></label>
+          <label class="field"><span>Hôte</span><input name="host" placeholder="1.2.3.4 ou vps.example.com" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+          <label class="field"><span>Port</span><input name="port" inputmode="numeric" placeholder="22"></label>
+          <label class="field"><span>Utilisateur</span><input name="user" placeholder="root" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        </div>
+        <div class="group-title">Authentification</div>
+        <div class="list">
+          <div class="field"><div class="seg" id="auth-seg"><button type="button" data-auth="key">Clé du pocket</button><button type="button" data-auth="password">Mot de passe</button></div></div>
+          <div class="field" data-auth-field="key"><span>Ajoute cette clé publique sur le serveur, une seule fois</span>
+            <pre class="pubkey" id="pubkey">…</pre>
+            <button type="button" class="btn ghost" id="copy-pubkey" style="margin-top:8px">Copier la commande</button>
+            <p class="hint">La clé privée est générée sur ton bridge et ne le quitte jamais. Rien de secret n'est stocké sur ce téléphone.</p></div>
+          <label class="field" data-auth-field="password"><span>Mot de passe (jamais enregistré, redemandé après fermeture de l'app)</span><input name="password" type="password" autocomplete="off"></label>
+        </div>
+        <div class="group-title">tmux</div>
+        <div class="list">
+          <label class="field"><span>Session par défaut</span><input name="session" placeholder="main" autocapitalize="off"></label>
+          <label class="field"><span>Dossier de départ des nouvelles fenêtres</span><input name="cwd" placeholder="~/code" autocapitalize="off"></label>
+          <label class="field"><span>Commandes rapides (une par ligne : nom = commande)</span><textarea name="presets" spellcheck="false"></textarea></label>
+          <label class="field check"><span>Adapter les fenêtres à l'iPhone</span><input name="fit" type="checkbox"></label>
+        </div>
+        <details class="adv">
+          <summary>Importer un bloc ~/.ssh/config</summary>
+          <div class="list"><label class="field"><span>Colle un bloc Host…</span><textarea id="sshconfig" spellcheck="false" placeholder="Host vps&#10;  HostName 1.2.3.4&#10;  User thomas&#10;  Port 2222"></textarea></label></div>
+          <button type="button" class="btn ghost" id="import-config">Importer</button>
+        </details>
+        <details class="adv">
+          <summary>Avancé</summary>
+          <div class="list">
+            <label class="field"><span>Transport</span><select name="transport"><option value="ssh">SSH via bridge</option><option value="local">Local (bridge sur le serveur)</option><option value="demo">Démo (simulation)</option></select></label>
+            <label class="field"><span>URL du bridge</span><input name="bridge" placeholder="http://127.0.0.1:8022" autocapitalize="off"></label>
+            <label class="field"><span>Chemin tmux</span><input name="tmuxPath" placeholder="tmux" autocapitalize="off"></label>
+            <label class="field"><span>Keepalive (secondes)</span><input name="keepalive" inputmode="numeric" placeholder="15"></label>
+          </div>
+        </details>
+        <button type="submit" class="btn">Enregistrer</button>
+        <button type="button" class="btn ghost" id="test-conn">Tester la connexion</button>
+        <button type="button" class="btn danger" id="del-server">Supprimer ce serveur</button>
+        <p class="hint">Seuls l'adresse, l'utilisateur et tes préférences sont enregistrés sur ce téléphone. Aucune clé, aucun mot de passe, aucun token.</p>
+      </form>
+    </section>
+
+    <!-- Windows -->
+    <section class="view" id="v-windows">
+      <header class="bar">
+        <button class="icon-btn back" aria-label="Retour">‹</button>
+        <div class="title"><b id="srv-name"></b><small id="srv-sub"></small></div>
+        <button class="icon-btn" id="edit-server" aria-label="Modifier">⚙︎</button>
+      </header>
+      <div class="scroll" id="windows"></div>
+      <button class="fab" id="new-window"><span>＋</span>Nouvelle fenêtre</button>
+    </section>
+
+    <!-- Window -->
+    <section class="view" id="v-window">
+      <header class="bar">
+        <button class="icon-btn back" aria-label="Retour">‹</button>
+        <div class="title"><b id="win-name"></b><small id="win-sub"></small></div>
+        <div class="seg" id="mode-seg"><button data-mode="term">Terminal</button><button data-mode="chat">Chat</button></div>
+        <button class="icon-btn" id="win-menu" aria-label="Menu">⋯</button>
+      </header>
+      <div id="termbox"></div>
+      <div id="chatbox"></div>
+      <div class="keybar" id="keybar">
+        <button data-keys="Escape">esc</button><button data-keys="Tab">tab</button><button data-keys="C-c">^C</button>
+        <button data-keys="Up">↑</button><button data-keys="Down">↓</button><button data-keys="Left">←</button><button data-keys="Right">→</button>
+        <button data-keys="Enter">⏎</button><button data-keys="BTab">⇧tab</button><button data-keys="C-d">^D</button>
+        <button data-keys="C-l">^L</button><button data-keys="C-r">^R</button><button data-keys="C-z">^Z</button>
+        <button data-text="/">/</button><button data-text="y">y</button><button data-text="n">n</button>
+        <button data-keys="PageUp">pgup</button><button data-keys="PageDown">pgdn</button>
+      </div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Message ou commande…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"></textarea>
+        <button type="submit" aria-label="Envoyer">↑</button>
+      </form>
+    </section>
+
+    <div class="sheet-wrap" id="sheet"><div class="sheet" id="sheet-body"></div></div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// =====================================================================
+// Storage: localStorage holds NO secret (no key, password or token), only addresses and
+// preferences. SSH auth uses the bridge's own key; the bridge session is an HttpOnly cookie.
+// =====================================================================
+const SECRET_FIELDS = ['password', 'privateKey', 'passphrase', 'token'];
+const stripSecrets = (srv) => { const c = { ...srv }; SECRET_FIELDS.forEach((k) => delete c[k]); return c; };
+const passwords = new Map(); // server id -> SSH password, memory only
+const STORE_KEY = 'tmuxpocket.v1';
+const DEFAULT_PRESETS = 'pi = pi\nClaude = claude\nCodex = codex\nAider = aider\nGemini = gemini\nopencode = opencode\nhtop = htop\nShell =';
+// Served by the bridge itself (localhost or your own domain): talk to the same origin.
+const defaultBridge = () => (location.protocol.startsWith('http') && !location.hostname.endsWith('github.io')) ? location.origin : 'http://127.0.0.1:8022';
+function defaults() {
+  return {
+    servers: [{ id: 'demo', name: 'Démo (simulation)', host: 'demo.local', user: 'thomas', port: 22, transport: 'demo',
+      auth: 'key', session: 'main', presets: DEFAULT_PRESETS, fit: true }],
+    chats: {}, modes: {},
+  };
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (s && s.servers) {
+      // Purge secrets saved by older versions.
+      const clean = { chats: {}, modes: {}, ...s, servers: s.servers.map(stripSecrets) };
+      delete clean.bridgeToken;
+      return clean;
+    }
+  } catch {}
+  return defaults();
+}
+let state = load();
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...state, servers: state.servers.map(stripSecrets) })); } catch {}
+}
+save();
+
+const parsePresets = (txt) => String(txt ?? DEFAULT_PRESETS).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+  const i = l.indexOf('=');
+  const label = (i < 0 ? l : l.slice(0, i)).trim();
+  const cmd = (i < 0 ? l : l.slice(i + 1)).trim();
+  return { label, cmd };
+});
+
+// Agents we know how to "chat" with. pane_current_command can be "node" for JS agents, so check the name too.
+const AGENT_RE = /^(pi|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/i;
+const isAgent = (w) => AGENT_RE.test(w.command || '') || AGENT_RE.test(w.name || '');
+
+// =====================================================================
+// Backend: bridge (HTTP -> SSH -> tmux) or in-browser simulator
+// =====================================================================
+// Secrets are typed into a sheet and never written to storage. One prompt at a time per key.
+const asking = new Map();
+function askSecret(id, title, hint) {
+  if (!asking.has(id)) asking.set(id, new Promise((resolve) => {
+    openSheet(`<h3>${esc(title)}</h3><p class="hint" style="margin:0 0 10px">${esc(hint)}</p>
+      <form class="inline" id="secret"><input name="t" type="password" autocomplete="off" autocapitalize="off"><button>OK</button></form>`, (el) => {
+      $('#secret', el).addEventListener('submit', (e) => {
+        e.preventDefault(); closeSheet(); asking.delete(id); resolve(e.target.t.value);
+      });
+      $('#secret input', el).focus();
+    });
+  }));
+  return asking.get(id);
+}
+
+async function bridgeFetch(base, path, body) {
+  return fetch(`${base}${path}`, { method: 'POST', credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+async function api(srv, op, args = {}, retried = false) {
+  if (srv.transport === 'demo') return Sim.call(op, args);
+  const base = (srv.bridge || defaultBridge()).replace(/\/$/, '');
+  let password;
+  if (srv.auth === 'password' && srv.transport !== 'local') {
+    password = srv.password || passwords.get(srv.id);
+    if (!password) {
+      password = await askSecret(`pw:${srv.id}`, `Mot de passe de ${srv.user}@${srv.host}`, 'Gardé en mémoire tant que l\'app est ouverte, jamais enregistré.');
+      if (srv.id) passwords.set(srv.id, password);
+    }
+  }
+  const conn = { transport: srv.transport || 'ssh', host: srv.host, port: srv.port, user: srv.user, keepalive: srv.keepalive,
+    tmuxPath: srv.tmuxPath, ...(password ? { password } : {}) };
+  const res = await bridgeFetch(base, `/api/${op}`, { conn, ...args });
+  if (res.status === 401 && !retried) {
+    const token = await askSecret('token', 'Connexion au bridge', 'Entre la valeur de BRIDGE_TOKEN (fichier /etc/tmux-pocket.env sur ton serveur). Elle n\'est pas enregistrée : le bridge ouvre une session de 30 jours.');
+    const r = await bridgeFetch(base, '/api/login', { token });
+    if (!r.ok) throw new Error('Token refusé');
+    return api(srv, op, args, true);
+  }
+  if (/authentication methods failed/i.test(await res.clone().text()) && password) passwords.delete(srv.id);
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// =====================================================================
+// Simulator: a fake server with tmux windows running agent TUIs.
+// Used to iterate on how tmux + agentic TUIs render on a phone.
+// =====================================================================
+const Sim = (() => {
+  const E = '\x1b[', R = E + '0m', B = E + '1m', D = E + '2m', I = E + '7m';
+  const fg = (n) => `${E}38;5;${n}m`, bg = (n) => `${E}48;5;${n}m`;
+  const ANSI = /\x1b\[[0-9;]*m/g;
+  const vlen = (s) => s.replace(ANSI, '').length;
+  function cut(s, n) {
+    let out = '', len = 0;
+    for (const tok of s.split(/(\x1b\[[0-9;]*m)/)) {
+      if (tok.startsWith('\x1b')) { out += tok; continue; }
+      if (len + tok.length > n) { out += tok.slice(0, n - len); return out + R; }
+      out += tok; len += tok.length;
+    }
+    return out;
+  }
+  const pad = (s, n) => (vlen(s) > n ? cut(s, n) : s + ' '.repeat(n - vlen(s)));
+  function wrap(text, w, first = '', rest = first) {
+    const out = [];
+    for (const para of String(text).split('\n')) {
+      let line = '';
+      const words = para.split(' ');
+      let prefix = out.length ? rest : first;
+      for (const word of words) {
+        if (vlen(prefix) + line.length + word.length + (line ? 1 : 0) > w && line) {
+          out.push(prefix + line); prefix = rest; line = word;
+        } else line += (line ? ' ' : '') + word;
+      }
+      out.push(prefix + line);
+    }
+    return out;
+  }
+  const t0 = Date.now();
+  const rnd = (seed) => { const x = Math.sin(seed * 9301 + 49297) * 233280; return x - Math.floor(x); };
+  const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+
+  const REPLIES = [
+    [/test/i, ['Bash(npm test)', 'Ran 42 tests'], 'Tous les tests passent (42/42). Le module tmux-bridge est couvert à 87 %. Je peux ajouter un test pour le cas « pas de serveur tmux » si tu veux.'],
+    [/bug|fix|erreur|error/i, ['Read(src/bridge.ts)', 'Read 128 lines', 'Edit(src/bridge.ts)', 'Updated 3 lines'], "Trouvé : le séparateur de format tmux était un caractère de contrôle, que tmux échappe en sortie. Je l'ai remplacé par « |:| » et mis le nom de fenêtre en dernier. Corrigé."],
+    [/plan|todo|étape/i, [], 'Plan proposé :\n1. Lister les fenêtres (tmux list-windows -a)\n2. Capturer l\'écran (capture-pane -e)\n3. Envoyer les touches (send-keys -l)\n4. Créer une fenêtre + commande en 2 taps'],
+    [/.*/, ['Bash(git status)', 'On branch main, 2 files changed'], 'Compris. Je regarde le dépôt et je reviens vers toi avec une proposition concrète. Dis-moi si tu veux que je lance directement les modifications.'],
+  ];
+
+  let nextId = 1;
+  const wins = [];
+  function mk(session, name, kind, extra = {}) {
+    const index = Math.max(-1, ...wins.filter((w) => w.session === session).map((w) => w.index)) + 1;
+    const w = { id: nextId++, session, index, name, kind, cols: 80, rows: 24, activity: Date.now() / 1000,
+      input: '', lines: [], items: [], busy: null, ...extra };
+    wins.push(w); return w;
+  }
+  const shellPrompt = () => `${fg(76)}thomas@demo${R}:${fg(39)}~/code${R}$ `;
+
+  mk('main', 'shell', 'shell', { lines: [shellPrompt() + 'git pull', 'Already up to date.', shellPrompt() + 'ls', `${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`] });
+  mk('main', 'pi', 'agent', { style: 'pi', items: [
+    { role: 'user', text: 'Ajoute une commande pour lister les fenêtres tmux' },
+    { role: 'tool', text: 'read src/tmux.ts' },
+    { role: 'agent', text: "C'est fait : `listWindows()` appelle `tmux list-windows -a -F …` et renvoie session, index, nom et commande." },
+  ] });
+  mk('main', 'claude', 'agent', { style: 'claude', items: [
+    { role: 'user', text: 'Résume les changements du jour' },
+    { role: 'tool', text: 'Bash(git log --since=today --oneline)', sub: '5 commits' },
+    { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), capture des écrans avec couleurs, vue chat pour les agents, et création de fenêtre en deux taps.' },
+  ] });
+  mk('main', 'htop', 'htop');
+  mk('infra', 'api-logs', 'logs');
+  mk('infra', 'deploy', 'shell', { lines: [shellPrompt() + 'kubectl get pods', 'NAME                   READY   STATUS', 'api-7d9f8b-x2k4l       1/1     Running', 'web-5c6d7e-m9n8p       1/1     Running'] });
+
+  const find = (t) => { const w = wins.find((x) => x.session === t.session && x.index === Number(t.window)); if (!w) throw new Error(`can't find window: ${t.session}:${t.window}`); return w; };
+  const command = (w) => w.kind === 'shell' ? 'bash' : w.kind === 'agent' ? w.cmd || w.style : w.kind === 'htop' ? 'htop' : 'tail';
+
+  // ---------- renderers ----------
+  function renderShell(w, rows, cols) {
+    const all = [...w.lines, shellPrompt() + w.input];
+    const out = all.flatMap((l) => (vlen(l) > cols ? [cut(l, cols)] : [l]));
+    const vis = rows ? out.slice(-rows) : out;
+    return { lines: vis, cursor: [Math.min(cols - 1, vlen(vis[vis.length - 1])), vis.length - 1] };
+  }
+
+  function agentBody(w, cols) {
+    const out = [];
+    const claude = w.style === 'claude';
+    if (claude) {
+      out.push(fg(209) + '╭' + '─'.repeat(cols - 2) + '╮' + R);
+      out.push(fg(209) + '│' + R + pad(` ${fg(209)}✻${R} ${B}Welcome to Claude Code!${R}`, cols - 2) + fg(209) + '│' + R);
+      out.push(fg(209) + '│' + R + pad(`   ${D}cwd: ~/code/tmux-pocket${R}`, cols - 2) + fg(209) + '│' + R);
+      out.push(fg(209) + '╰' + '─'.repeat(cols - 2) + '╯' + R, '');
+    } else {
+      out.push(`${B}${fg(45)}π${R} ${B}pi${R} ${D}coding agent · ~/code/tmux-pocket${R}`, '');
+    }
+    for (const it of w.items) {
+      if (it.role === 'user') {
+        out.push(...wrap(it.text, cols - 2, claude ? `${D}> ` : `${bg(236)}${fg(252)} `, claude ? `${D}  ` : `${bg(236)}${fg(252)} `).map((l) => pad(l, cols) + R), '');
+      } else if (it.role === 'tool') {
+        out.push(...wrap(it.text, cols - 2, claude ? `${fg(70)}●${R} ${B}` : `${fg(244)}› ${fg(110)}`, '  ').map((l) => l + R));
+        if (it.sub) out.push(`  ${D}⎿  ${it.sub}${R}`);
+        out.push('');
+      } else {
+        const text = it.text.replace(/`([^`]+)`/g, `${fg(117)}$1${R}`);
+        out.push(...wrap(text, cols - 2, claude ? `${fg(255)}●${R} ` : '', claude ? '  ' : ''), '');
+      }
+    }
+    if (w.busy) {
+      const s = SPIN[Math.floor(Date.now() / 90) % SPIN.length];
+      out.push(claude ? `${fg(209)}${s} Thinking…${R} ${D}(esc to interrupt)${R}` : `${fg(45)}${s}${R} ${D}Working… (esc to stop)${R}`);
+    }
+    return out;
+  }
+  function agentFooter(w, cols) {
+    const claude = w.style === 'claude';
+    const inp = w.input;
+    if (claude) {
+      const lines = wrap(inp || '', cols - 6, '', '');
+      return [
+        fg(244) + '╭' + '─'.repeat(cols - 2) + '╮' + R,
+        ...lines.map((l, i) => fg(244) + '│' + R + pad(`${i ? '  ' : ' >'} ${l}`, cols - 2) + fg(244) + '│' + R),
+        fg(244) + '╰' + '─'.repeat(cols - 2) + '╯' + R,
+        `  ${D}? for shortcuts${R}`,
+      ];
+    }
+    const lines = wrap(inp || '', cols - 2, '', '');
+    return [
+      fg(240) + '─'.repeat(cols) + R,
+      ...lines.map((l) => ' ' + l),
+      fg(240) + '─'.repeat(cols) + R,
+      pad(`${D}~/code/tmux-pocket (main)${R}`, Math.max(0, cols - 24)) + `${D}↑12k ↓3.1k  ctx 18%${R}`,
+    ];
+  }
+  function renderAgent(w, rows, cols) {
+    const body = agentBody(w, cols), foot = agentFooter(w, cols);
+    if (!rows) return { lines: [...body, ...foot], cursor: [0, 0] };
+    const room = rows - foot.length;
+    let top = body.length > room ? body.slice(-room) : body;
+    while (top.length < room) top.push('');
+    const curRow = room + foot.length - 3; // last input line, inside the box
+    const lastIn = wrap(w.input || '', cols - (w.style === 'claude' ? 6 : 2), '', '').pop();
+    return { lines: [...top, ...foot], cursor: [Math.min(cols - 1, (w.style === 'claude' ? 4 : 1) + lastIn.length), curRow] };
+  }
+  function renderHtop(w, rows, cols) {
+    const s = Math.floor(Date.now() / 1000);
+    const bar = (label, v, color) => {
+      const width = Math.max(4, cols - 14);
+      const n = Math.round(v * width);
+      return `${fg(39)}${label}${R}[${fg(color)}${'|'.repeat(n)}${R}${' '.repeat(width - n)}${(v * 100).toFixed(1).padStart(5)}%]`;
+    };
+    const out = [];
+    for (let c = 0; c < 4; c++) out.push(bar(String(c).padStart(3) + ' ', rnd(s + c) * 0.8, 70));
+    out.push(bar('Mem ', 0.42 + rnd(s) * 0.05, 33), bar('Swp ', 0.02, 196));
+    out.push(`  ${fg(39)}Tasks:${R} ${B}87${R}, 312 thr; ${fg(70)}2 running${R}   ${fg(39)}Load:${R} 0.42 0.38 0.31`, '');
+    out.push(I + fg(70) + pad('  PID USER      CPU% MEM%  Command', cols) + R);
+    const procs = ['node pi', 'node claude', 'tmux: server', 'sshd: thomas', 'postgres', 'nginx: worker', 'bash', 'htop', 'node api/server.js', 'redis-server'];
+    procs.forEach((p, i) => out.push(pad(`${String(1200 + i * 37).padStart(5)} thomas   ${(rnd(s * 7 + i) * (i < 2 ? 40 : 5)).toFixed(1).padStart(5)} ${(rnd(i) * 4).toFixed(1).padStart(4)}  ${i < 2 ? fg(117) : ''}${p}${R}`, cols)));
+    const lines = rows ? out.slice(0, rows - 1) : out;
+    while (rows && lines.length < rows - 1) lines.push('');
+    lines.push(`${I}F1${R}Help ${I}F2${R}Setup ${I}F3${R}Search ${I}F10${R}Quit`);
+    return { lines, cursor: [0, 0] };
+  }
+  function renderLogs(w, rows, cols) {
+    const n = 40 + Math.floor((Date.now() - t0) / 1500);
+    const out = [];
+    for (let i = Math.max(0, n - (rows || 200)); i < n; i++) {
+      const r = rnd(i), lvl = r > 0.93 ? `${fg(196)}ERROR` : r > 0.8 ? `${fg(214)}WARN ` : `${fg(70)}INFO `;
+      const route = ['GET /api/sessions', 'POST /api/capture', 'GET /health', 'POST /api/send'][i % 4];
+      out.push(cut(`${D}12:${String(10 + Math.floor(i / 60) % 50).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}${R} ${lvl}${R} ${route} ${D}${Math.floor(r * 90 + 4)}ms${R}`, cols));
+    }
+    return { lines: out, cursor: [0, out.length - 1] };
+  }
+  function render(w, history) {
+    const rows = history ? 0 : w.rows, cols = w.cols;
+    const f = { shell: renderShell, agent: renderAgent, htop: renderHtop, logs: renderLogs }[w.kind];
+    return f(w, rows, cols);
+  }
+
+  // ---------- input ----------
+  const AGENTS = /^(pi|claude|codex|aider|gemini|opencode|amp|goose|crush)\b/;
+  function runShell(w, cmd) {
+    w.lines.push(shellPrompt() + cmd);
+    const c = cmd.trim();
+    if (!c) return;
+    if (c === 'clear') { w.lines = []; return; }
+    if (c === 'exit') { wins.splice(wins.indexOf(w), 1); return; }
+    if (c === 'ls') { w.lines.push(`${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`); return; }
+    if (c === 'date') { w.lines.push(new Date().toString()); return; }
+    if (c.startsWith('echo ')) { w.lines.push(c.slice(5)); return; }
+    if (c === 'tmux ls') {
+      const ss = [...new Set(wins.map((x) => x.session))];
+      ss.forEach((s) => w.lines.push(`${s}: ${wins.filter((x) => x.session === s).length} windows (created ${new Date(t0).toDateString()})`));
+      return;
+    }
+    if (c === 'htop' || c === 'top') { w.kind = 'htop'; w.name = w.name === 'shell' ? 'htop' : w.name; return; }
+    const m = c.match(AGENTS);
+    if (m) {
+      Object.assign(w, { kind: 'agent', style: m[1] === 'claude' ? 'claude' : 'pi', cmd: m[1], items: [], input: '' });
+      return;
+    }
+    w.lines.push(`${D}(simulation) ${c}: ok${R}`);
+  }
+  function submitAgent(w) {
+    const text = w.input.trim();
+    w.input = '';
+    if (!text) return;
+    if (/^\/(quit|exit)$/.test(text)) { Object.assign(w, { kind: 'shell', lines: [shellPrompt() + w.cmd] }); return; }
+    w.items.push({ role: 'user', text });
+    const [, tools, reply] = REPLIES.find(([re]) => re.test(text));
+    const job = { cancelled: false };
+    w.busy = job;
+    (async () => {
+      await sleep(700);
+      for (let i = 0; i < tools.length && !job.cancelled; i += 2) {
+        w.items.push({ role: 'tool', text: tools[i], sub: tools[i + 1] });
+        w.activity = Date.now() / 1000;
+        await sleep(600);
+      }
+      if (job.cancelled) return;
+      const msg = { role: 'agent', text: '' };
+      w.items.push(msg);
+      for (let i = 0; i <= reply.length && !job.cancelled; i += 4) {
+        msg.text = reply.slice(0, i); w.activity = Date.now() / 1000;
+        await sleep(30);
+      }
+      if (!job.cancelled) w.busy = null;
+    })();
+  }
+  function key(w, k) {
+    w.activity = Date.now() / 1000;
+    if (w.kind === 'htop') { if (k === 'C-c' || k === 'q' || k === 'F10') { w.kind = 'shell'; w.lines = w.lines || []; } return; }
+    if (w.kind === 'logs') { if (k === 'C-c') { Object.assign(w, { kind: 'shell', lines: ['^C'] }); } return; }
+    if (k === 'Enter') return w.kind === 'shell' ? (runShell(w, w.input), (w.input = '')) : submitAgent(w);
+    if (k === 'BSpace') { w.input = w.input.slice(0, -1); return; }
+    if (k === 'C-c') {
+      if (w.kind === 'agent' && w.busy) { w.busy.cancelled = true; w.busy = null; w.items.push({ role: 'tool', text: 'Interrupted by user' }); }
+      else if (w.kind === 'shell') { w.lines.push(shellPrompt() + w.input + '^C'); w.input = ''; }
+      else w.input = '';
+      return;
+    }
+    if (k === 'Escape' && w.kind === 'agent' && w.busy) { w.busy.cancelled = true; w.busy = null; w.items.push({ role: 'tool', text: 'Interrupted by user' }); return; }
+    if (k === 'C-l' && w.kind === 'shell') { w.lines = []; return; }
+    if (k === 'C-d' && w.kind === 'shell' && !w.input) { wins.splice(wins.indexOf(w), 1); return; }
+    if (k === 'Up' && w.kind === 'agent') { const last = [...w.items].reverse().find((i) => i.role === 'user'); if (last) w.input = last.text; return; }
+    if (k === 'Space') w.input += ' ';
+  }
+
+  const ops = {
+    list: () => ({ windows: wins.map((w, i) => ({ session: w.session, window: w.index, name: w.name, active: false,
+      command: command(w), activity: Math.floor(w.activity), attached: 0, width: w.cols, height: w.rows })) }),
+    capture: ({ target, history }) => {
+      const w = find(target); const r = render(w, !!history);
+      return { width: w.cols, height: history ? r.lines.length : w.rows, cursor: r.cursor, command: command(w), screen: r.lines.map((l) => l + R).join('\n') + '\n' };
+    },
+    send: ({ target, text, enter = true }) => {
+      const w = find(target);
+      if (w.kind === 'shell' || w.kind === 'agent') w.input += text; else key(w, text);
+      if (enter) key(w, 'Enter');
+      return { ok: true };
+    },
+    keys: ({ target, keys }) => { const w = find(target); keys.forEach((k) => key(w, k)); return { ok: true }; },
+    new: ({ session, name, command: cmd }) => {
+      const w = mk(session, name || 'shell', 'shell', { lines: [] });
+      if (cmd) { w.input = cmd; key(w, 'Enter'); }
+      return { session, window: w.index };
+    },
+    kill: ({ target }) => { wins.splice(wins.indexOf(find(target)), 1); return { ok: true }; },
+    resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
+  };
+  return {
+    async call(op, args) {
+      await sleep(40 + Math.random() * 60); // fake network latency
+      if (!ops[op]) throw new Error('unknown op');
+      return JSON.parse(JSON.stringify(ops[op](args)));
+    },
+  };
+})();
+
+// =====================================================================
+// UI plumbing
+// =====================================================================
+const nav = [];
+function show(id) {
+  $$('.view').forEach((v) => v.classList.toggle('on', v.id === id));
+}
+function go(id, enter) { nav.push({ id, enter }); show(id); enter && enter(); }
+function back() {
+  const cur = nav.pop(); cur && cur.leave && cur.leave();
+  const prev = nav[nav.length - 1];
+  if (!prev) return go('v-servers', renderServers);
+  show(prev.id); prev.enter && prev.enter();
+}
+$$('.back').forEach((b) => b.addEventListener('click', () => back()));
+
+let statusTimer;
+function toast(msg, ok = false) {
+  const s = $('#status'); s.textContent = msg; s.className = 'status on' + (ok ? ' ok' : '');
+  clearTimeout(statusTimer); statusTimer = setTimeout(() => s.classList.remove('on'), 2600);
+}
+
+function openSheet(html, bind) {
+  $('#sheet-body').innerHTML = '<div class="grabber"></div>' + html;
+  $('#sheet').classList.add('on'); bind && bind($('#sheet-body'));
+}
+// Two-tap confirmation inside the UI (no blocking dialogs on iOS web views / embedded frames).
+function armed(btn, label) {
+  if (btn.dataset.armed) return true;
+  btn.dataset.armed = '1'; const b = btn.querySelector('b') || btn; const old = b.textContent; b.textContent = label;
+  setTimeout(() => { delete btn.dataset.armed; b.textContent = old; }, 3000);
+  return false;
+}
+const closeSheet = () => $('#sheet').classList.remove('on');
+$('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
+
+// iOS keyboard: keep the composer above it.
+if (window.visualViewport) {
+  const fit = () => document.documentElement.style.setProperty('--app-h', `${visualViewport.height}px`);
+  visualViewport.addEventListener('resize', fit); fit();
+}
+
+const ago = (ts) => {
+  if (!ts) return '';
+  const d = Date.now() / 1000 - ts;
+  return d < 60 ? 'à l\'instant' : d < 3600 ? `${Math.floor(d / 60)} min` : d < 86400 ? `${Math.floor(d / 3600)} h` : `${Math.floor(d / 86400)} j`;
+};
+
+// =====================================================================
+// Screen 1: servers
+// =====================================================================
+function renderServers() {
+  const box = $('#servers');
+  if (!state.servers.length) {
+    box.innerHTML = '<div class="empty"><b>Aucun serveur</b>Ajoute une connexion SSH avec ＋</div>';
+    return;
+  }
+  box.innerHTML = '<div class="list">' + state.servers.map((s) => `
+    <button class="row" data-id="${esc(s.id)}">
+      <div class="idx">${s.transport === 'demo' ? '◎' : '⌁'}</div>
+      <div class="main"><b>${esc(s.name || s.host)}</b><small>${esc(s.user)}@${esc(s.host)}${s.port && s.port != 22 ? ':' + esc(s.port) : ''}</small></div>
+      ${s.transport === 'demo' ? '<span class="chip">démo</span>' : s.transport === 'local' ? '<span class="chip">local</span>' : ''}
+      <span class="chev">›</span>
+    </button>`).join('') + '</div><p class="hint">Touche un serveur pour voir ses fenêtres tmux.</p>';
+  $$('.row', box).forEach((r) => r.addEventListener('click', () => openServer(r.dataset.id)));
+}
+$('#add-server').addEventListener('click', () => go('v-form', () => fillForm(null)));
+
+// =====================================================================
+// Screen 2: server form (saved automatically on submit)
+// =====================================================================
+let editing = null;
+function fillForm(id) {
+  editing = id;
+  const s = state.servers.find((x) => x.id === id) || { port: 22, auth: 'key', session: 'main', presets: DEFAULT_PRESETS, fit: true, transport: 'ssh' };
+  $('#form-title').textContent = id ? 'Modifier le serveur' : 'Nouveau serveur';
+  const f = $('#form');
+  for (const el of f.elements) {
+    if (!el.name) continue;
+    if (el.type === 'checkbox') el.checked = s[el.name] !== false;
+    else el.value = s[el.name] ?? '';
+  }
+  setAuth(s.auth || 'key');
+  $('#del-server').style.display = id ? '' : 'none';
+}
+// The bridge's public key: the only thing to install on a server.
+let pubkey = '';
+async function loadPubkey() {
+  $('#pubkey').textContent = 'Chargement…';
+  try {
+    const f = readForm();
+    if (f.transport === 'demo') { $('#pubkey').textContent = 'ssh-ed25519 AAAA… (démo)'; return; }
+    const base = (f.bridge || defaultBridge()).replace(/\/$/, '');
+    let r = await bridgeFetch(base, '/api/pubkey', {});
+    if (r.status === 401) {
+      const token = await askSecret('token', 'Connexion au bridge', 'Entre la valeur de BRIDGE_TOKEN (fichier /etc/tmux-pocket.env sur ton serveur).');
+      if (!(await bridgeFetch(base, '/api/login', { token })).ok) throw new Error('Token refusé');
+      r = await bridgeFetch(base, '/api/pubkey', {});
+    }
+    pubkey = (await r.json()).publicKey;
+    // "restrict" forbids port/agent/X11 forwarding and PTYs for this key: the bridge only runs tmux commands.
+    // Idempotent: adds the line once, changes nothing else.
+    $('#pubkey').textContent = `LINE='restrict ${pubkey}'; mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && { grep -qxF "$LINE" ~/.ssh/authorized_keys || echo "$LINE" >> ~/.ssh/authorized_keys; }`;
+  } catch (e) { $('#pubkey').textContent = `Bridge injoignable : ${e.message}`; }
+}
+$('#copy-pubkey').addEventListener('click', async () => {
+  const text = $('#pubkey').textContent;
+  try { await navigator.clipboard.writeText(text); toast('Commande copiée : colle-la dans un terminal sur ton serveur', true); }
+  catch { const r = document.createRange(); r.selectNodeContents($('#pubkey')); getSelection().removeAllRanges(); getSelection().addRange(r); }
+});
+function setAuth(a) {
+  $('#form').dataset.auth = a;
+  $$('#auth-seg button').forEach((b) => b.classList.toggle('on', b.dataset.auth === a));
+  $$('[data-auth-field]').forEach((el) => (el.style.display = el.dataset.authField === a ? '' : 'none'));
+  if (a === 'key') loadPubkey();
+}
+$$('#auth-seg button').forEach((b) => b.addEventListener('click', () => setAuth(b.dataset.auth)));
+function readForm() {
+  const f = $('#form'), s = { auth: f.dataset.auth };
+  for (const el of f.elements) if (el.name) s[el.name] = el.type === 'checkbox' ? el.checked : el.value.trim();
+  s.port = Number(s.port) || 22;
+  s.session = s.session || 'main';
+  if (!s.name) s.name = s.host;
+  return s;
+}
+$('#form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const s = readForm();
+  if (s.transport === 'ssh' && (!s.host || !s.user)) return toast('Hôte et utilisateur requis');
+  const id = editing || Math.random().toString(36).slice(2, 10);
+  if (s.password) passwords.set(id, s.password);
+  delete s.password;
+  if (editing) Object.assign(state.servers.find((x) => x.id === editing), s);
+  else state.servers.push({ id, ...s });
+  save(); toast('Serveur enregistré', true); back();
+});
+$('#test-conn').addEventListener('click', async () => {
+  try { const r = await api(readForm(), 'list'); toast(`OK — ${r.windows.length} fenêtre(s) tmux`, true); }
+  catch (e) { toast(e.message); }
+});
+$('#del-server').addEventListener('click', (e) => {
+  if (!armed(e.currentTarget, 'Toucher encore pour supprimer')) return;
+  state.servers = state.servers.filter((x) => x.id !== editing); save();
+  nav.forEach((n) => n.leave && n.leave()); nav.length = 0; go('v-servers', renderServers);
+});
+// Minimal ~/.ssh/config parser: first concrete Host block.
+$('#import-config').addEventListener('click', () => {
+  const f = $('#form'); let block = null;
+  for (const raw of $('#sshconfig').value.split('\n')) {
+    const m = raw.trim().match(/^(\w+)\s*=?\s*(.+)$/); if (!m) continue;
+    const k = m[1].toLowerCase(), v = m[2].trim();
+    if (k === 'host') { if (block) break; if (!v.includes('*')) block = { name: v.split(/\s+/)[0] }; continue; }
+    if (!block) continue;
+    if (k === 'hostname') block.host = v; else if (k === 'user') block.user = v; else if (k === 'port') block.port = v;
+    else if (k === 'identityfile') block.key = v;
+  }
+  if (!block) return toast('Aucun bloc Host trouvé');
+  for (const k of ['name', 'host', 'user', 'port']) if (block[k]) f.elements[k].value = block[k];
+  if (!block.host) f.elements.host.value = block.name;
+  setAuth('key'); toast('Importé. Ajoute la clé du pocket sur ce serveur.', true);
+});
+
+// =====================================================================
+// Screen 3: tmux windows of a server (= tmux ls, one row per window)
+// =====================================================================
+let srv = null, listTimer = null, lastWindows = [];
+function openServer(id) {
+  srv = state.servers.find((x) => x.id === id);
+  go('v-windows', enterWindows);
+  nav[nav.length - 1].leave = () => clearInterval(listTimer);
+}
+function enterWindows() {
+  $('#srv-name').textContent = srv.name || srv.host;
+  $('#srv-sub').textContent = `${srv.user}@${srv.host}`;
+  $('#windows').innerHTML = '<div class="empty">Connexion…</div>';
+  refreshWindows();
+  clearInterval(listTimer); listTimer = setInterval(refreshWindows, 3000);
+}
+async function refreshWindows() {
+  if (document.hidden) return;
+  try {
+    const { windows } = await api(srv, 'list');
+    lastWindows = windows; drawWindows(windows);
+  } catch (e) {
+    $('#windows').innerHTML = `<div class="empty"><b>Connexion impossible</b>${esc(e.message)}<br><br>Vérifie que le bridge tourne (<code>npm start</code>) et l'URL dans ⚙︎ › Avancé.</div>`;
+  }
+}
+function drawWindows(windows) {
+  const box = $('#windows');
+  if (!windows.length) {
+    box.innerHTML = '<div class="empty"><b>Aucune session tmux</b>Crée ta première fenêtre avec ＋ Nouvelle fenêtre</div>';
+    return;
+  }
+  const sessions = [...new Set(windows.map((w) => w.session))];
+  box.innerHTML = sessions.map((s) => `
+    <div class="group-title">${esc(s)}</div>
+    <div class="list">${windows.filter((w) => w.session === s).map((w) => `
+      <button class="row" data-s="${esc(w.session)}" data-w="${w.window}">
+        <div class="idx ${isAgent(w) ? 'agent' : ''}">${w.window}${w.active && w.attached ? '<i class="dot"></i>' : ''}</div>
+        <div class="main"><b>${esc(w.name)}</b><small>${esc(w.command)} · ${ago(w.activity)}</small></div>
+        ${isAgent(w) ? '<span class="chip agent">agent</span>' : ''}
+        <span class="chev">›</span>
+      </button>`).join('')}</div>`).join('');
+  $$('.row', box).forEach((r) => r.addEventListener('click', () => {
+    const w = windows.find((x) => x.session === r.dataset.s && x.window === Number(r.dataset.w));
+    openWindow(w);
+  }));
+}
+$('#edit-server').addEventListener('click', () => go('v-form', () => fillForm(srv.id)));
+
+// Two taps: ＋ then a preset -> window created with the command running, and opened.
+let newSession = null;
+$('#new-window').addEventListener('click', () => {
+  const sessions = [...new Set([srv.session || 'main', ...lastWindows.map((w) => w.session)])];
+  newSession = newSession && sessions.includes(newSession) ? newSession : sessions[0];
+  const presets = parsePresets(srv.presets);
+  openSheet(`
+    <h3>Nouvelle fenêtre</h3>
+    <div class="chips"></div>
+    <div class="presets">${presets.map((p, i) => `
+      <button class="preset" data-i="${i}"><span class="glyph">${esc(p.cmd ? p.label.slice(0, 2) : '$_')}</span>${esc(p.label)}<small>${esc(p.cmd || 'shell')}</small></button>`).join('')}
+    </div>
+    <form class="inline" id="custom"><input name="cmd" placeholder="autre commande… ex: npm run dev" autocapitalize="off" autocorrect="off" spellcheck="false"><button>Lancer</button></form>
+    <form class="inline" id="newsess"><input name="s" placeholder="ou nouvelle session…" autocapitalize="off" autocorrect="off" spellcheck="false"><button>＋</button></form>`,
+  (el) => {
+    const drawChips = () => {
+      $('.chips', el).innerHTML = sessions.map((s) => `<button type="button" data-s="${esc(s)}" class="${s === newSession ? 'on' : ''}">${esc(s)}</button>`).join('');
+      $$('.chips button', el).forEach((b) => (b.onclick = () => { newSession = b.dataset.s; drawChips(); }));
+    };
+    drawChips();
+    $$('.preset', el).forEach((b) => b.addEventListener('click', () => {
+      const p = presets[Number(b.dataset.i)]; createWindow(p.label.toLowerCase(), p.cmd);
+    }));
+    $('#custom', el).addEventListener('submit', (e) => {
+      e.preventDefault(); const cmd = e.target.cmd.value.trim(); if (cmd) createWindow(cmd.split(/\s+/)[0].split('/').pop(), cmd);
+    });
+    $('#newsess', el).addEventListener('submit', (e) => {
+      e.preventDefault(); const s = e.target.s.value.trim().replace(/[.:]/g, '-'); if (!s) return;
+      if (!sessions.includes(s)) sessions.push(s);
+      newSession = s; drawChips(); e.target.reset();
+    });
+  });
+});
+async function createWindow(name, cmd) {
+  closeSheet();
+  try {
+    const r = await api(srv, 'new', { session: newSession, name: name || 'shell', command: cmd, cwd: srv.cwd || undefined });
+    openWindow({ session: r.session, window: r.window, name: name || 'shell', command: cmd ? cmd.split(/\s+/)[0] : 'shell' });
+  } catch (e) { toast(e.message); }
+}
+
+// =====================================================================
+// Screen 4: a window — Terminal (xterm.js) or Chat (agent-native view)
+// =====================================================================
+const W = { win: null, term: null, timer: null, busy: false, last: '', mode: 'term', fitted: false, baseline: null, live: '' };
+const winKey = () => `${srv.id}|${W.win.session}:${W.win.window}`;
+
+function openWindow(win) {
+  W.win = win; W.last = ''; W.live = '';
+  // Only show what came after the last agent message we already froze in the chat history.
+  const lastAgent = [...(state.chats[winKey()] || [])].reverse().find((m) => m.role === 'agent');
+  W.baseline = lastAgent ? lastAgent.text.split('\n') : null;
+  W.mode = state.modes[winKey()] || (isAgent(win) ? 'chat' : 'term');
+  go('v-window', enterWindow);
+  nav[nav.length - 1].leave = leaveWindow;
+}
+function enterWindow() {
+  $('#win-name').textContent = W.win.name;
+  $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${W.win.command || ''}`;
+  if (!W.term) {
+    W.term = new Terminal({ fontFamily: 'Menlo, "SF Mono", ui-monospace, monospace', fontSize: 12, cursorBlink: false,
+      theme: { background: '#0b0d10' }, scrollback: 0, convertEol: false, allowProposedApi: false });
+    W.term.open($('#termbox'));
+    W.term.onData(onTermData);
+  }
+  setMode(W.mode);
+  fitToPhone().finally(() => { tick(); });
+  clearInterval(W.timer);
+  W.timer = setInterval(tick, srv.transport === 'demo' ? 150 : 600);
+}
+function leaveWindow() {
+  clearInterval(W.timer);
+  if (W.fitted) api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {});
+  W.fitted = false;
+}
+function setMode(m) {
+  W.mode = m; state.modes[winKey()] = m; save();
+  $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+  $('#termbox').style.display = m === 'term' ? '' : 'none';
+  $('#chatbox').style.display = m === 'chat' ? 'block' : 'none';
+  $('#input').placeholder = m === 'chat' ? 'Message à l\'agent…' : 'Commande (⏎ envoie)…';
+  W.last = '';
+  if (m === 'chat') drawChat(null);
+}
+$$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+// Resize the tmux window so TUIs re-layout for a phone screen.
+const CHAR_W = 0.6, LINE_H = 1.2, FONT = 12;
+async function fitToPhone() {
+  if (srv.fit === false) return;
+  const box = $('#termbox');
+  const width = (box.clientWidth || $('#app').clientWidth) - 8, height = (box.clientHeight || 500) - 8;
+  const cols = Math.max(30, Math.floor(width / (FONT * CHAR_W)));
+  const rows = Math.max(10, Math.floor(height / (FONT * LINE_H)));
+  try { await api(srv, 'resize', { target: W.win, cols, rows }); W.fitted = true; } catch (e) { /* old tmux: fall back to scaling */ }
+}
+
+async function tick() {
+  if (W.busy || document.hidden) return;
+  W.busy = true;
+  try {
+    if (W.mode === 'term') drawTerm(await api(srv, 'capture', { target: W.win }));
+    else drawChat(await api(srv, 'capture', { target: W.win, history: 400 }));
+  } catch (e) {
+    toast(e.message);
+    if (/can't find|no such|not found/i.test(e.message)) { clearInterval(W.timer); back(); }
+  } finally { W.busy = false; }
+}
+
+function drawTerm(c) {
+  const t = W.term, box = $('#termbox');
+  if (c.command && c.command !== W.win.command) { W.win.command = c.command; $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${c.command}`; }
+  // Scale the font so the whole pane width fits the phone.
+  const fs = Math.max(6, Math.min(14, Math.floor(((box.clientWidth - 8) / (c.width * CHAR_W)) * 2) / 2));
+  if (t.options.fontSize !== fs) t.options.fontSize = fs;
+  if (t.cols !== c.width || t.rows !== c.height) t.resize(c.width, c.height);
+  const frame = c.screen.replace(/\n$/, '') + `@${c.cursor}`;
+  if (frame === W.last) return;
+  W.last = frame;
+  t.write('\x1b[H\x1b[2J\x1b[0m' + c.screen.replace(/\n$/, '').replace(/\n/g, '\r\n') + `\x1b[${c.cursor[1] + 1};${c.cursor[0] + 1}H`);
+}
+
+// ---------- chat rendering of agent TUIs ----------
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
+const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g;
+const RULE = /^\s*[╭┌╰└]?[─━═-]{8,}[╮┐╯┘]?\s*$/;
+const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
+function cleanScreen(screen, width = 80) {
+  let lines = screen.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  while (lines.length && !lines[lines.length - 1]) lines.pop();
+  // Drop the TUI's bottom chrome (input box, footer): cut at the first rule among the last 6 lines.
+  const from = Math.max(0, lines.length - 6);
+  const cutAt = lines.findIndex((l, i) => i >= from && RULE.test(l));
+  if (cutAt > 0) lines = lines.slice(0, cutAt);
+  lines = lines.filter((l) => !RULE.test(l)).map((l) => l.replace(BOX_EDGE, '').replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s.*$/, ''));
+  // Undo the terminal's hard wrapping so prose reflows in a bubble.
+  const out = [];
+  for (const l of lines) {
+    const prev = out[out.length - 1];
+    if (prev && prev.wide && l.trim() && !MARK.test(l)) { prev.text += ' ' + l.trim(); prev.wide = l.length >= width - 16; }
+    else out.push({ text: l, wide: l.length >= width - 16 });
+  }
+  return out.map((o) => o.text).join('\n').replace(/\n{3,}/g, '\n\n').trim().split('\n');
+}
+function since(base, cur) {
+  if (!base) return cur.slice(-80);
+  const anchor = base.filter(Boolean).slice(-3);
+  if (!anchor.length) return cur;
+  for (let i = cur.length - anchor.length; i >= 0; i--) {
+    if (anchor.every((a, j) => cur[i + j] === a)) return cur.slice(i + anchor.length);
+  }
+  return cur.slice(-80);
+}
+function drawChat(c) {
+  const hist = state.chats[winKey()] || [];
+  if (c) {
+    const lines = cleanScreen(c.screen, c.width);
+    W.lastLines = lines;
+    const lastUser = [...hist].reverse().find((m) => m.role === 'user');
+    W.live = since(W.baseline, lines)
+      .filter((l) => !lastUser || l.replace(/^\s*[>❯›]\s*/, '').trim() !== lastUser.text.trim())
+      .join('\n').trim();
+  }
+  const html = hist.map(bubble).join('') + (W.live ? bubble({ role: 'agent', text: W.live }, true) : '');
+  if (html === W.last) return;
+  const box = $('#chatbox');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  W.last = html; box.innerHTML = html || '<div class="empty">Écris un message : il est envoyé à l\'agent dans la fenêtre tmux.</div>';
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+function bubble(m, live) {
+  if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
+  const body = esc(m.text).replace(/^(\s*[●⏺›•]\s.*)$/gm, '<span class="tool">$1</span>');
+  return `<div class="msg agent${live ? ' live' : ''}"><span class="who">${esc(W.win.name)}${live ? ' · en direct' : ''}</span>${body}</div>`;
+}
+
+// ---------- input ----------
+const input = $('#input');
+input.addEventListener('input', () => { input.style.height = '40px'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
+$('#composer').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = input.value;
+  input.value = ''; input.style.height = '40px';
+  try {
+    if (!text) return await api(srv, 'keys', { target: W.win, keys: ['Enter'] });
+    if (W.mode === 'chat') {
+      const k = winKey(); const hist = (state.chats[k] ||= []);
+      if (W.live) hist.push({ role: 'agent', text: W.live });
+      hist.push({ role: 'user', text, ts: Date.now() });
+      if (hist.length > 200) hist.splice(0, hist.length - 200);
+      W.baseline = W.lastLines; W.live = ''; save(); drawChat(null);
+    }
+    await api(srv, 'send', { target: W.win, text, enter: true });
+    tick();
+  } catch (err) { toast(err.message); }
+});
+$('#keybar').addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  try {
+    if (b.dataset.keys) await api(srv, 'keys', { target: W.win, keys: b.dataset.keys.split(' ') });
+    else await api(srv, 'send', { target: W.win, text: b.dataset.text, enter: false });
+    tick();
+  } catch (err) { toast(err.message); }
+});
+
+// Typing directly in the terminal (hardware keyboard or tap-to-focus): map xterm bytes to tmux keys.
+const SEQ = { '\r': 'Enter', '\x7f': 'BSpace', '\b': 'BSpace', '\t': 'Tab', '\x1b': 'Escape', '\x1b[A': 'Up', '\x1b[B': 'Down',
+  '\x1b[C': 'Right', '\x1b[D': 'Left', '\x1b[Z': 'BTab', '\x1b[5~': 'PageUp', '\x1b[6~': 'PageDown', '\x1b[H': 'Home', '\x1b[F': 'End', '\x1b[3~': 'DC' };
+let sendChain = Promise.resolve();
+function onTermData(d) {
+  const ops = [];
+  for (const tok of d.match(/\x1b\[[0-9;]*[~A-Z]|\x1b|[\x00-\x1f\x7f]|[^\x00-\x1f\x7f\x1b]+/g) || []) {
+    if (SEQ[tok]) ops.push({ keys: [SEQ[tok]] });
+    else if (tok.length === 1 && tok.charCodeAt(0) < 27) ops.push({ keys: ['C-' + String.fromCharCode(96 + tok.charCodeAt(0))] });
+    else if (!tok.startsWith('\x1b')) ops.push({ text: tok });
+  }
+  sendChain = sendChain.then(async () => {
+    for (const o of ops) await api(srv, o.keys ? 'keys' : 'send', { target: W.win, ...(o.keys ? { keys: o.keys } : { text: o.text, enter: false }) }).catch((e) => toast(e.message));
+    tick();
+  });
+}
+
+$('#win-menu').addEventListener('click', () => {
+  openSheet(`<h3>${esc(W.win.name)} <small style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(W.win.session)}:${W.win.window}</small></h3>
+    <div class="list menu">
+      <button class="row" data-a="fit"><div class="main"><b>${srv.fit === false ? 'Adapter à l\'iPhone' : 'Ne plus adapter (taille du serveur)'}</b><small>tmux resize-window</small></div></button>
+      <button class="row" data-a="clear"><div class="main"><b>Effacer l'historique du chat</b><small>local uniquement</small></div></button>
+      <button class="row" data-a="kill"><div class="main"><b style="color:var(--danger)">Fermer la fenêtre</b><small>tmux kill-window</small></div></button>
+    </div>`, (el) => {
+    $$('.row', el).forEach((r) => r.addEventListener('click', async () => {
+      const a = r.dataset.a;
+      if (a === 'kill' && !armed(r, 'Toucher encore pour fermer')) return;
+      closeSheet();
+      if (a === 'fit') {
+        srv.fit = srv.fit === false; save();
+        if (srv.fit) await fitToPhone(); else { await api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {}); W.fitted = false; }
+        W.last = ''; tick();
+      } else if (a === 'clear') { delete state.chats[winKey()]; W.baseline = W.lastLines; W.live = ''; save(); W.last = ''; drawChat(null); }
+      else if (a === 'kill') {
+        try { await api(srv, 'kill', { target: W.win }); W.fitted = false; back(); } catch (e) { toast(e.message); }
+      }
+    }));
+  });
+});
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden && nav.length && nav[nav.length - 1].id === 'v-window') tick(); });
+
+go('v-servers', renderServers);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "tmux-pocket-bridge",
+  "version": "0.1.0",
+  "description": "Tiny HTTP <-> SSH relay that drives tmux for the tmux-pocket iPhone prototype",
+  "main": "server.js",
+  "bin": { "tmux-pocket-bridge": "server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  }
+}
