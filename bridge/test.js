@@ -8,7 +8,7 @@ process.env.STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-state-'));
 const {
   ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk,
   pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
-  agentChat,
+  agentChat, persist,
 } = require('./server');
 
 const conn = { transport: 'local', tmuxPath: `tmux -L pocket-test-${process.pid}` };
@@ -204,12 +204,29 @@ test('codeafIngest maps thinking, tools and rewind like the phone chat expects',
   assert.strictEqual(conv.messages[1].tools[0].output, 'Linux demo');
 });
 
-test('agent-chat AUTH exposes login CLIs for Claude, Codex, Gemini, OpenCode', () => {
-  assert.deepStrictEqual(agentChat.KINDS.slice().sort(), ['claude', 'codex', 'gemini', 'opencode']);
+test('agent-chat AUTH exposes login CLIs for Claude, Codex, Gemini, OpenCode, Cursor', () => {
+  assert.deepStrictEqual(agentChat.KINDS.slice().sort(), ['claude', 'codex', 'cursor', 'gemini', 'opencode']);
   assert.match(agentChat.AUTH.claude.login, /claude/);
   assert.match(agentChat.AUTH.codex.login, /codex/);
   assert.match(agentChat.AUTH.gemini.login, /gemini/);
   assert.match(agentChat.AUTH.opencode.login, /opencode/);
+  assert.match(agentChat.AUTH.cursor.login, /agent login/);
+});
+
+test('ingestClaude accepts Cursor CLI role-based JSONL', () => {
+  const cache = agentChat.emptyCache();
+  const lines = [
+    JSON.stringify({ role: 'user', id: 'u1', message: { content: [{ type: 'text', text: 'Hello' }] } }),
+    JSON.stringify({
+      role: 'assistant', id: 'a1',
+      message: { content: [{ type: 'text', text: 'Hi from Cursor Agent' }] },
+    }),
+  ];
+  for (const line of lines) agentChat.ingestClaude(cache, line);
+  const conv = agentChat.conversationFromCache(cache);
+  assert.strictEqual(conv.messages[0].role, 'user');
+  assert.strictEqual(conv.messages[0].text, 'Hello');
+  assert.strictEqual(conv.messages[1].text, 'Hi from Cursor Agent');
 });
 
 test('ingestClaude maps user/assistant/thinking/tools like the phone chat', () => {
@@ -298,8 +315,33 @@ test('ops.agentAuth and per-kind chat ops are registered', async () => {
   const auth = await ops.agentAuth(conn, {});
   assert.ok(auth.auth.claude.login);
   assert.ok(auth.kinds.includes('codex'));
-  for (const kind of ['claude', 'codex', 'gemini', 'opencode']) {
+  for (const kind of ['claude', 'codex', 'gemini', 'opencode', 'cursor']) {
     assert.equal(typeof ops[kind], 'function');
+  }
+});
+
+test('persist.parseStatus reads probe lines', () => {
+  const st = persist.parseStatus([
+    'tpm yes', 'resurrect yes', 'continuum yes', 'block yes', 'restore yes',
+    'lastSave 1700000000', 'tmux yes',
+  ].join('\n'));
+  assert.strictEqual(st.ready, true);
+  assert.strictEqual(st.lastSave, 1700000000);
+});
+
+test('persist status and install are registered', async () => {
+  assert.equal(typeof ops.persistStatus, 'function');
+  assert.equal(typeof ops.persistInstall, 'function');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-persist-'));
+  const prev = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const st = await ops.persistStatus({ transport: 'local', tmuxPath: conn.tmuxPath });
+    assert.strictEqual(st.tmux, true);
+    assert.strictEqual(st.ready, false);
+  } finally {
+    process.env.HOME = prev;
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

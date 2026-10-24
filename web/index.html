@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080b">
 <title>tmux pocket</title>
-<meta name="tmux-pocket-ui" content="dashboard-edit-1">
+<meta name="tmux-pocket-ui" content="auth-quiet-1">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
 /* tmux pocket — dark-first on purpose: it lives next to terminals. One accent (phosphor mint) for actions and
@@ -20,7 +20,7 @@
   --text: #eceef3; --text-2: #b6bac6; --muted: #7c8191;
   --accent: #5be3a4; --accent-ink: #03150c; --accent-soft: rgba(91,227,164,.14);
   --wait: #f5b84a; --wait-soft: rgba(245,184,74,.14); --danger: #ff6b6b; --danger-soft: rgba(255,107,107,.14);
-  --agent: #9d8cff; --agent-soft: rgba(157,140,255,.15);
+  --agent: #8b93a7; --agent-soft: rgba(139,147,167,.14);
   --term-bg: #13773d; --term-fg: #fff0a5; --term-cursor: #8c2800; --term-font: Menlo, "SF Mono", ui-monospace, monospace;
   --bar: rgba(12,14,18,.78); --blur: saturate(1.6) blur(18px);
   --phone-bezel: #1a1c21;
@@ -36,7 +36,7 @@ html[data-appearance="light"] {
   --text: #0f172a; --text-2: #334155; --muted: #64748b;
   --accent: #0f9f6e; --accent-ink: #ffffff; --accent-soft: rgba(15,159,110,.14);
   --wait: #c27803; --wait-soft: rgba(194,120,3,.12); --danger: #dc2626; --danger-soft: rgba(220,38,38,.12);
-  --agent: #6d28d9; --agent-soft: rgba(109,40,217,.12);
+  --agent: #5c6578; --agent-soft: rgba(92,101,120,.12);
   --bar: rgba(238,241,246,.86); --blur: saturate(1.4) blur(16px);
   --phone-bezel: #c7ccd6;
   color-scheme: light;
@@ -90,6 +90,16 @@ header.bar .title small { display: block; color: var(--muted); font: 11.5px/1.3 
 header.bar button.title.win-switch { text-align: left; border-radius: 12px; padding: 4px 8px; margin: 0; }
 header.bar button.title.win-switch:active { background: var(--surface-2); }
 header.bar .title .chev-down { width: 14px; height: 14px; color: var(--muted); flex: none; margin-left: 2px; }
+/* Window header mark: agent favicon (or glyph) tinted with the dashboard tile colour. */
+.win-mark { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--win-c, var(--muted)) 22%, var(--surface-3));
+  color: var(--win-c, var(--text-2)); overflow: hidden; position: relative; }
+.win-mark img { width: 16px; height: 16px; object-fit: contain; display: block; }
+.win-mark .glyph-fb { display: none; font: 700 12px var(--mono); }
+.win-mark.fallback img { display: none; }
+.win-mark.fallback .glyph-fb { display: grid; place-items: center; }
+.win-mark.working { box-shadow: 0 0 0 1.5px var(--accent); }
+.win-mark.waiting { box-shadow: 0 0 0 1.5px var(--wait); }
 header.bar.large { border-bottom-color: transparent; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .large-title { padding: 2px 18px 10px; flex: none; }
 .large-title h1 { margin: 0; font-size: 32px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -109,10 +119,20 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 .group-title small { font: 500 11.5px var(--mono); text-transform: none; letter-spacing: 0; }
 .group-title.sess { margin-top: 16px; }
 .group-title.sess:first-child { margin-top: 4px; }
-.group-title .sess-acts { display: flex; gap: 4px; }
+.group-title .sess-acts { display: flex; gap: 4px; align-items: center; }
 .group-title .sess-acts button { height: 28px; min-width: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text-2); font: 600 11px var(--ui); text-transform: none; letter-spacing: 0; }
 .group-title .sess-acts button:active { background: var(--accent); color: var(--accent-ink); }
+.sess-ops { display: none; align-items: center; gap: 4px; }
+.board[data-editing="1"] .sess-ops { display: flex; }
+.sess-ops button { height: 28px; min-width: 28px; padding: 0 7px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); font: 700 13px/1 var(--ui); display: grid; place-items: center; }
+.sess-ops button:active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.sess-ops .bdrag { cursor: grab; touch-action: none; color: var(--muted); letter-spacing: -2px; font-size: 14px; }
+.sess-ops .bdrag:active { cursor: grabbing; }
+.group-title.sess.dragging { z-index: 6; position: relative; touch-action: none; transition: none;
+  color: var(--accent); }
+.group-title.sess.drop-target { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
 .list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; width: 100%; text-align: left; border-bottom: 1px solid var(--line); min-height: 52px; }
 .row:last-child { border-bottom: 0; }
@@ -159,9 +179,10 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 .board-pulse .quiet { color: var(--muted); font: 12.5px/1.3 var(--ui); padding: 0 2px; }
 .board { display: flex; flex-direction: column; gap: 8px; padding-bottom: 110px; min-width: 0; align-content: start; }
 .board[data-layout="grid"] { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-/* Phones: never force a cramped 2-col grid — list is the readable default. */
+/* Phones: list only — no grille mode. */
 @media (max-width: 540px) {
-  .board[data-layout="grid"] { grid-template-columns: 1fr; }
+  .board[data-layout="grid"] { display: flex; flex-direction: column; }
+  .board-tools .seg[aria-label="Disposition du dashboard"] { display: none; }
 }
 .board .group-title.sess { grid-column: 1 / -1; margin-top: 6px; }
 .board .group-title.sess:first-child { margin-top: 0; }
@@ -171,10 +192,6 @@ header.bar.large { border-bottom-color: transparent; background: transparent; -w
 .board-edit-btn { min-height: 34px; padding: 7px 14px; border-radius: 11px; border: 1px solid var(--line-2);
   background: var(--surface-2); color: var(--text); font: 650 13px var(--ui); }
 .board-edit-btn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.board-edit-hint { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border-radius: 12px;
-  background: var(--accent-soft); color: var(--text-2); font: 500 12.5px/1.4 var(--ui); }
-.board[data-editing="1"] .board-edit-hint { display: block; }
-.board-edit-hint[hidden] { display: none !important; }
 details.miss-agents { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
 details.miss-agents summary { color: var(--muted); padding: 10px 4px; cursor: pointer; font: 600 13px var(--ui); list-style: none; display: flex; align-items: center; gap: 8px; }
 details.miss-agents summary::-webkit-details-marker { display: none; }
@@ -309,13 +326,36 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .preset { background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px 6px 11px; text-align: center; }
 .preset:active { transform: scale(.96); background: var(--surface-3); }
-.preset .glyph { display: grid; place-items: center; width: 38px; height: 38px; margin: 0 auto 8px; border-radius: 11px;
-  background: var(--surface-3); font: 700 16px var(--mono); color: var(--text-2); }
-.preset.agent .glyph { background: var(--agent-soft); color: var(--agent); }
-.preset.pi .glyph { background: var(--accent-soft); color: var(--accent); font-size: 19px; }
+.preset .glyph, .preset .logo { display: grid; place-items: center; width: 38px; height: 38px; margin: 0 auto 8px; border-radius: 11px;
+  background: var(--surface-3); font: 700 16px var(--mono); color: var(--text-2); overflow: hidden; }
+.preset.agent .glyph, .preset.agent .logo { background: var(--agent-soft); color: var(--agent); }
+.preset.pi .glyph, .preset.pi .logo { background: var(--accent-soft); color: var(--accent); font-size: 19px; }
 .preset.miss { opacity: .92; border-style: dashed; }
-.preset.miss .glyph { background: var(--surface); color: var(--muted); }
+.preset.miss .glyph, .preset.miss .logo { background: var(--surface); color: var(--muted); }
 .preset small { display: block; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.logo { position: relative; }
+.logo img { width: 22px; height: 22px; object-fit: contain; display: block; }
+.logo .glyph-fb { display: none; }
+.logo.fallback img { display: none; }
+.logo.fallback .glyph-fb { display: grid; place-items: center; }
+.btile .logo { width: 30px; height: 30px; border-radius: 9px; flex: none; margin: 0;
+  background: color-mix(in srgb, var(--tile-c, var(--muted)) 18%, var(--surface-3)); }
+.btile .logo img { width: 18px; height: 18px; }
+.tpl-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+.tpl-chip { min-height: 40px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); font: 650 13px var(--ui); color: var(--text); text-align: left; }
+.tpl-chip small { display: block; color: var(--muted); font: 500 11px var(--ui); margin-top: 2px; font-weight: 500; }
+.tpl-chip:active { background: var(--accent); color: var(--accent-ink); }
+.tpl-chip:active small { color: var(--accent-ink); opacity: .85; }
+.persist-card { margin: 8px 0 4px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface-2); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.persist-card .main { flex: 1; min-width: 140px; }
+.persist-card b { display: block; font-size: 14.5px; }
+.persist-card small { display: block; color: var(--muted); font: 12px/1.35 var(--ui); margin-top: 2px; }
+.persist-card .btn { width: auto; min-height: 40px; margin: 0; padding: 8px 14px; font-size: 13.5px; }
+.board-persist { min-height: 34px; padding: 7px 12px; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text-2); font: 650 12.5px var(--ui); }
+.board-persist.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); }
 .agent-install { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
 .agent-install p { margin: 0 0 8px; color: var(--text-2); font-size: 13.5px; line-height: 1.4; }
 .agent-install code, .agent-install .cmd { display: block; font: 12px/1.45 var(--mono); color: var(--text); background: var(--bg-2);
@@ -342,8 +382,9 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 #v-window header .seg button { padding: 6px 11px; font-size: 12.5px; }
 /* Fill the stage: flex-basis 0% so Safari actually grows chatbox/termwrap (dock stuck under
    the first bubble left a huge gap above the iOS keyboard + Safari URL pill). */
-#v-window { --gutter: 12px; width: 100%; min-height: 0; }
+#v-window { --gutter: 12px; --win-c: var(--muted); width: 100%; min-height: 0; }
 #v-window.on { flex: 1 1 0%; max-height: 100%; }
+/* Colour stays on the header mark only — no tinted wash / neon underlines. */
 #termwrap { flex: 1 1 0%; min-height: 0; position: relative; background: var(--term-bg); }
 #termbox { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; outline: none; touch-action: pan-x pan-y; }
 #termlines { padding: 6px 6px 10px; min-width: max-content; color: var(--term-fg); font-family: Menlo, "SF Mono", ui-monospace, monospace; white-space: pre; }
@@ -354,13 +395,24 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
   color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 [hidden] { display: none !important; }
 #chatbox { flex: 1 1 0%; min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 14px var(--gutter); display: none; flex-direction: column; background: var(--bg); }
-.msg { max-width: 86%; margin: 0 0 10px; padding: 9px 13px; border-radius: 19px; white-space: pre-wrap; word-break: break-word; font-size: 15.5px; line-height: 1.42; }
-.msg.user { margin-left: auto; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 6px; font-weight: 500; }
-.msg.agent { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 6px;
-  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; max-width: 100%; color: var(--text-2); }
+  padding: 14px var(--gutter); display: none; flex-direction: column; background: var(--bg); overscroll-behavior-y: contain; }
+.msg { max-width: 86%; margin: 0; padding: 9px 13px; border-radius: 16px; white-space: pre-wrap; word-break: break-word; font-size: 15.5px; line-height: 1.42; }
+.msg.user { margin-left: auto; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 5px; font-weight: 500; }
+/* Screen dumps stay unframed — a bordered bubble here reads as AI chrome. */
+.msg.agent { max-width: 100%; margin: 0 0 14px; padding: 0; border: 0; border-radius: 0; background: transparent;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.mrow .msg, .mrow .msg.agent { margin: 0; }
+#chatbox > .msg.user { margin: 0 0 10px auto; }
 .msg .tool { color: var(--accent); }
-.msg .who { display: block; font-family: var(--ui); font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.msg .who { display: block; font-family: var(--ui); font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+/* Swipe message left (légèrement) to reveal timestamp when the transcript has one. */
+.mrow { position: relative; margin: 0 0 12px; touch-action: pan-y; overflow: hidden; }
+.mrow .mslide { transition: transform .18s cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.mrow.dragging .mslide { transition: none; }
+.mrow .mts { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  font: 550 11px/1.2 var(--mono); color: var(--muted); opacity: 0; pointer-events: none; white-space: nowrap;
+  transition: opacity .15s ease; letter-spacing: .01em; }
+.mrow.revealed .mts, .mrow.dragging .mts { opacity: 1; }
 
 /* dock: suggestions + shortcuts stay visible; keybar folds away. Chat hides the keybar entirely. */
 .dock { flex: none; margin-top: auto; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); z-index: 5; }
@@ -375,14 +427,24 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .suggest { display: flex; gap: 6px; padding: 6px var(--gutter) 2px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
 .suggest::-webkit-scrollbar { display: none; }
 .suggest[hidden] { display: none !important; }
-.suggest button { flex: none; height: 34px; padding: 0 14px; border-radius: 99px; border: 1px solid var(--wait);
-  background: var(--wait-soft); color: var(--wait); font: 650 13.5px var(--ui); }
-.suggest button:active { background: var(--wait); color: var(--bg); }
-.suggest button.sec { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+.suggest button { flex: none; height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); font: 600 13px var(--ui); }
+.suggest button:active { background: var(--surface-3); }
+.suggest button.pri { border-color: var(--line-2); background: var(--surface-3); font-weight: 650; }
+.suggest button.sec { color: var(--text-2); }
+.msg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; word-break: break-all; }
+.msg-link:active { color: var(--accent); text-decoration-color: var(--accent); }
+/* Device codes: tap-to-copy, looks like mono text — not a promo chip. */
+button.auth-code { display: inline; margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none;
+  font: 650 12.5px var(--mono); color: var(--text); text-decoration: underline; text-decoration-style: dotted;
+  text-decoration-color: var(--muted); text-underline-offset: 3px; vertical-align: baseline; }
+button.auth-code:active { color: var(--accent); text-decoration-color: var(--accent); }
 .switcher .row.on { background: var(--accent-soft); }
-.switcher .row .glyph { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none;
-  background: var(--surface-3); font: 700 13px var(--mono); color: var(--text-2); }
-.switcher .row.on .glyph { background: var(--accent-soft); color: var(--accent); }
+.switcher .row .glyph, .switcher .row .logo { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none;
+  background: color-mix(in srgb, var(--tile-c, var(--muted)) 20%, var(--surface-3));
+  font: 700 13px var(--mono); color: var(--tile-c, var(--text-2)); margin: 0; overflow: hidden; }
+.switcher .row .logo img { width: 16px; height: 16px; }
+.switcher .row.on .glyph, .switcher .row.on .logo { background: color-mix(in srgb, var(--tile-c, var(--accent)) 28%, var(--surface-3)); }
 .keyrow { display: flex; gap: 6px; padding: 3px var(--gutter, 12px); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
 .keyrow::-webkit-scrollbar { display: none; }
 .keyrow:empty { display: none; }
@@ -490,13 +552,14 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 /* native pi conversation */
 .msg.user.pending { opacity: .55; }
 .pmsg { margin: 0 0 12px; }
+.mrow > .mslide > .pmsg { margin: 0; }
 .pmsg.assistant { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; border-bottom-left-radius: 6px;
   padding: 11px 13px; font-size: 15.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .pmsg code { font-family: var(--mono); font-size: 13px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
-/* Tool / bash outputs: horizontal pan must win over #chatbox's vertical scroll, and survive redraws. */
+/* Tool / bash outputs: nested scrollport. Vertical overscroll chains to #chatbox (see wireNestedScroll). */
 .pmsg pre { font-family: var(--mono); font-size: 12px; background: var(--bg-2); border: 1px solid var(--line); padding: 9px; border-radius: 10px;
-  overflow-x: auto; overflow-y: hidden; white-space: pre; margin: 6px 0; color: var(--text-2); max-width: 100%;
-  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x; }
+  max-height: min(42vh, 320px); max-width: 100%; overflow: auto; white-space: pre; margin: 6px 0; color: var(--text-2);
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .pmsg details { margin: 4px 0 0; }
 .pmsg details summary { cursor: pointer; color: var(--muted); font: 600 12px var(--mono); list-style: none; padding: 4px 0; }
 .pmsg details summary::-webkit-details-marker { display: none; }
@@ -641,7 +704,7 @@ html[data-appearance="light"] .status.ok { background: rgba(6,78,59,.94); color:
       <header class="bar">
         <button class="icon-btn back" aria-label="Retour"><svg class="i"><use href="#i-back"/></svg></button>
         <button type="button" class="title win-switch" id="win-switch" aria-haspopup="dialog" aria-label="Changer de fenêtre">
-          <b><i class="sdot" id="win-dot"></i><span id="win-name"></span><svg class="i chev-down" aria-hidden="true"><use href="#i-fold"/></svg></b>
+          <b><span class="win-mark logo fallback" id="win-mark" aria-hidden="true"><span class="glyph-fb">$</span></span><span id="win-name"></span><svg class="i chev-down" aria-hidden="true"><use href="#i-fold"/></svg></b>
           <small id="win-sub"></small>
         </button>
         <div class="seg" id="mode-seg"><button data-mode="term">TUI</button><button data-mode="chat">Chat</button></div>
@@ -707,46 +770,71 @@ const STORE_KEY = 'tmuxpocket.v1';
 // Official coding agents — recommendation order. Only installed ones are one-tap launchable;
 // missing ones show affiliated docs + the official install line (runnable from the pocket).
 const AGENT_CATALOG = [
-  { id: 'codeaf', bin: 'codeaf', label: 'CodeAF', glyph: '◈', cls: 'agent', cmd: 'codeaf',
+  { id: 'codeaf', bin: 'codeaf', label: 'CodeAF', glyph: '◈', cls: 'agent', cmd: 'codeaf', logo: 'agentfield.ai',
     install: 'curl -fsSL https://agentfield.ai/get/codeaf | bash',
     docs: 'https://agentfield.ai/docs/codeaf',
     login: 'codeaf', loginHint: 'CodeAF demande le modèle / la clé au premier lancement',
     blurb: 'Usine d’agents dans le terminal (AgentField).' },
-  { id: 'pi', bin: 'pi', label: 'pi', glyph: 'π', cls: 'pi', cmd: 'pi',
+  { id: 'pi', bin: 'pi', label: 'pi', glyph: 'π', cls: 'pi', cmd: 'pi', logo: 'pi.dev',
     install: 'curl -fsSL https://pi.dev/install.sh | sh',
     docs: 'https://pi.dev/docs/latest/quickstart',
     login: 'pi', loginHint: 'pi configure le modèle au premier lancement (/model)',
     blurb: 'Agent de code open source (pi.dev).' },
-  { id: 'claude', bin: 'claude', label: 'Claude', glyph: '✻', cls: 'agent', cmd: 'claude',
+  { id: 'claude', bin: 'claude', label: 'Claude', glyph: '✻', cls: 'agent', cmd: 'claude', logo: 'claude.ai',
     install: 'curl -fsSL https://claude.ai/install.sh | bash',
     docs: 'https://docs.anthropic.com/en/docs/claude-code',
     login: 'claude auth login', loginHint: 'Connexion Anthropic (Claude Code)',
     blurb: 'Claude Code — installateur officiel Anthropic.' },
-  { id: 'codex', bin: 'codex', label: 'Codex', glyph: '◎', cls: 'agent', cmd: 'codex',
+  { id: 'cursor', bin: 'agent', label: 'Cursor', glyph: '▍', cls: 'agent', cmd: 'agent', logo: 'cursor.com',
+    install: 'curl https://cursor.com/install -fsS | bash',
+    docs: 'https://cursor.com/docs/cli/overview',
+    login: 'agent login', loginHint: 'Connexion Cursor (CLI agent)',
+    blurb: 'Cursor Agent — CLI officiel (binaire `agent`).' },
+  { id: 'codex', bin: 'codex', label: 'Codex', glyph: '◎', cls: 'agent', cmd: 'codex', logo: 'openai.com',
     install: 'npm install -g @openai/codex',
     docs: 'https://github.com/openai/codex',
     login: 'codex login', loginHint: 'Connexion OpenAI (Codex CLI)',
     blurb: 'Codex CLI (OpenAI).' },
-  { id: 'gemini', bin: 'gemini', label: 'Gemini', glyph: '✦', cls: 'agent', cmd: 'gemini',
+  { id: 'gemini', bin: 'gemini', label: 'Gemini', glyph: '✦', cls: 'agent', cmd: 'gemini', logo: 'gemini.google.com',
     install: 'npm install -g @google/gemini-cli',
     docs: 'https://github.com/google-gemini/gemini-cli',
     login: 'gemini', loginHint: 'Au premier lancement, Gemini ouvre /auth (Google)',
     blurb: 'Gemini CLI (Google).' },
-  { id: 'opencode', bin: 'opencode', label: 'OpenCode', glyph: '◆', cls: 'agent', cmd: 'opencode',
+  { id: 'opencode', bin: 'opencode', label: 'OpenCode', glyph: '◆', cls: 'agent', cmd: 'opencode', logo: 'opencode.ai',
     install: 'curl -fsSL https://opencode.ai/v2/install | bash',
     docs: 'https://opencode.ai/',
     login: 'opencode auth login', loginHint: 'Connexion OpenCode (fournisseur)',
     blurb: 'OpenCode — agent open source.' },
-  { id: 'aider', bin: 'aider', label: 'Aider', glyph: '♦', cls: 'agent', cmd: 'aider',
+  { id: 'aider', bin: 'aider', label: 'Aider', glyph: '♦', cls: 'agent', cmd: 'aider', logo: 'aider.chat',
     install: 'python -m pip install aider-install && aider-install',
     docs: 'https://aider.chat/docs/install.html',
     login: null, loginHint: 'Aider utilise OPENAI_API_KEY / ANTHROPIC_API_KEY dans l’environnement',
     blurb: 'Aider — pair programming dans le terminal.' },
 ];
 const TOOL_PRESETS = [
-  { label: 'htop', cmd: 'htop', bin: 'htop', glyph: '▤', cls: '' },
-  { label: 'Shell', cmd: '', bin: null, glyph: '$', cls: '' },
+  { label: 'htop', cmd: 'htop', bin: 'htop', glyph: '▤', cls: '', logo: null },
+  { label: 'Shell', cmd: '', bin: null, glyph: '$', cls: '', logo: null },
 ];
+// Session recipes: several windows in one tap (YAML-shaped, agent-friendly later).
+const TEMPLATES = [
+  { id: 'solo', label: 'Agent', blurb: '1 agent dans ~/code',
+    windows: [{ name: 'agent', cmd: 'pi', cwd: true }] },
+  { id: 'dev', label: 'Dev', blurb: 'agent + shell',
+    windows: [{ name: 'agent', cmd: 'pi', cwd: true }, { name: 'shell', cmd: '', cwd: true }] },
+  { id: 'ops', label: 'Ops', blurb: 'htop + logs + shell',
+    windows: [{ name: 'htop', cmd: 'htop' }, { name: 'logs', cmd: 'journalctl -f' }, { name: 'shell', cmd: '' }] },
+  { id: 'chat', label: 'IRC', blurb: 'weechat',
+    windows: [{ name: 'irc', cmd: 'weechat' }] },
+];
+const logoUrl = (domain) => domain
+  ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`
+  : '';
+const logoMark = (domain, glyph, { tile = false } = {}) => domain
+  ? `<span class="logo"><img src="${logoUrl(domain)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add('fallback')"><span class="glyph-fb" aria-hidden="true">${esc(glyph || '?')}</span></span>`
+  : tile
+    ? `<span class="swatch" aria-hidden="true">${esc(glyph || '?')}</span>`
+    : `<span class="glyph" aria-hidden="true">${esc(glyph || '?')}</span>`;
+let lastPersist = null;
 const DEFAULT_PRESETS = 'htop = htop\nShell =';
 let lastAgents = {};
 // Served by the bridge itself (localhost or your own domain): talk to the same origin.
@@ -796,7 +884,7 @@ const parsePresets = (txt) => String(txt ?? DEFAULT_PRESETS).split('\n').map((l)
 });
 
 // Agents we know how to "chat" with. pane_current_command can be "node" for JS agents, so check the name too.
-const AGENT_RE = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush|qwen|cursor-agent|copilot)\b/i;
+const AGENT_RE = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush|qwen|cursor-agent|agent|copilot)\b/i;
 const isAgent = (w) => AGENT_RE.test(w.command || '') || AGENT_RE.test(w.name || '');
 
 // =====================================================================
@@ -903,7 +991,11 @@ const Sim = (() => {
   }
   const shellPrompt = () => `${fg(76)}thomas@demo${R}:${fg(39)}~/code${R}$ `;
 
-  const presentBins = new Set(['codeaf', 'pi', 'claude', 'codex', 'gemini', 'opencode', 'htop', 'bash', 'weechat']);
+  const presentBins = new Set(['codeaf', 'pi', 'claude', 'agent', 'codex', 'gemini', 'opencode', 'htop', 'bash', 'weechat']);
+  let lastPersistDemo = {
+    tmux: true, tpm: false, resurrect: false, continuum: false,
+    block: false, restore: false, lastSave: null, ready: false,
+  };
   mk('main', 'shell', 'shell', { lines: [shellPrompt() + 'git pull', 'Already up to date.', shellPrompt() + 'ls', `${fg(39)}api${R}  ${fg(39)}web${R}  ${fg(39)}tmux-pocket${R}  README.md`] });
   mk('main', 'codeaf', 'agent', { style: 'pi', cmd: 'codeaf', items: [
     { role: 'user', text: 'Prépare un /senior-dev sur tmux-pocket' },
@@ -920,6 +1012,10 @@ const Sim = (() => {
     { role: 'user', text: 'Résume les changements du jour' },
     { role: 'tool', text: 'Bash(git log --since=today --oneline)', sub: '5 commits' },
     { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), chat natif Claude/Codex/Gemini/OpenCode, et login CLI depuis l’app.' },
+  ] });
+  mk('main', 'cursor', 'agent', { style: 'pi', cmd: 'agent', items: [
+    { role: 'user', text: 'Ouvre une session Cursor Agent' },
+    { role: 'agent', text: 'CLI `agent` prêt. Login via `agent login` ; le chat lit `~/.cursor/projects/…/agent-transcripts/*.jsonl`.' },
   ] });
   mk('main', 'codex', 'agent', { style: 'pi', cmd: 'codex', items: [
     { role: 'user', text: 'Explique le bridge tmux-pocket' },
@@ -1086,7 +1182,7 @@ const Sim = (() => {
   }
 
   // ---------- input ----------
-  const AGENTS = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush)\b/;
+  const AGENTS = /^(pi|claude|codex|aider|gemini|opencode|codeaf|amp|goose|crush|agent|cursor-agent)\b/;
   function runShell(w, cmd) {
     w.lines.push(shellPrompt() + cmd);
     const c = cmd.trim();
@@ -1104,6 +1200,7 @@ const Sim = (() => {
     if (c === 'htop' || c === 'top') { w.kind = 'htop'; w.name = w.name === 'shell' ? 'htop' : w.name; return; }
     const installMark = {
       codeaf: 'agentfield.ai/get/codeaf', pi: 'pi.dev/install', claude: 'claude.ai/install',
+      cursor: 'cursor.com/install',
       codex: '@openai/codex', gemini: '@google/gemini-cli', opencode: 'opencode.ai', aider: 'aider-install',
     };
     for (const a of AGENT_CATALOG) {
@@ -1115,19 +1212,33 @@ const Sim = (() => {
         return;
       }
     }
-    // Simulated CLI login for catalog agents (e.g. "claude auth login").
+    // Simulated CLI login: show a device URL + code so the phone can offer Ouvrir / Copier / Coller.
     for (const a of AGENT_CATALOG) {
       if (a.login && (c === a.login || c.startsWith(`${a.login} `))) {
         presentBins.add(a.bin);
-        w.lines.push(`${fg(76)}✓${R} ${a.label} : login simulé`);
-        w.lines.push(`${D}${a.loginHint || 'Compte prêt.'}${R}`);
+        const host = ({
+          claude: 'claude.ai/oauth/authorize', cursor: 'cursor.com/login/device',
+          codex: 'auth.openai.com/device', gemini: 'accounts.google.com/device',
+          opencode: 'opencode.ai/auth', codeaf: 'agentfield.ai/login', pi: 'pi.dev/login',
+        })[a.id] || `${a.id}.example/device`;
+        const code = ({ claude: 'CLDE-9K2M', cursor: 'CRSR-4F7A', codex: 'CDX-81QP', gemini: 'GEM-2N9C' })[a.id] || 'ABCD-1234';
+        w.name = `auth-${a.id}`;
+        w.lines = [
+          shellPrompt() + c,
+          `${fg(81)}To authenticate ${a.label}, visit:${R}`,
+          `  https://${host}`,
+          `${fg(81)}Enter code:${R} ${B}${code}${R}`,
+          `${D}Waiting for authorization…${R}`,
+          `${fg(244)}Paste API token here when prompted, or press Enter when done.${R}`,
+        ];
         return;
       }
     }
     const m = c.match(AGENTS);
     if (m) {
-      presentBins.add(m[1]);
-      Object.assign(w, { kind: 'agent', style: m[1] === 'claude' ? 'claude' : 'pi', cmd: m[1], items: [], input: '' });
+      const bin = m[1] === 'cursor-agent' ? 'agent' : m[1];
+      presentBins.add(bin);
+      Object.assign(w, { kind: 'agent', style: bin === 'claude' ? 'claude' : 'pi', cmd: bin, items: [], input: '' });
       return;
     }
     w.lines.push(`${D}(simulation) ${c}: ok${R}`);
@@ -1233,14 +1344,16 @@ const Sim = (() => {
     _nativeChat(w) {
       if (w.kind !== 'agent') return { found: false };
       const items = w.busy ? w.items.slice(0, w.items.length - (w.items[w.items.length - 1]?.role === 'agent' ? 1 : 0)) : w.items;
+      const t0 = Date.now() - items.length * 180000;
       const messages = items.map((it, i) => {
-        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text };
+        const ts = new Date(t0 + i * 180000).toISOString();
+        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text, ts };
         if (it.role === 'tool') {
-          return { id: `m${i}`, role: 'assistant', text: '', tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
+          return { id: `m${i}`, role: 'assistant', text: '', ts, tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
             args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] };
         }
         const tools = (it.tools || []).map((t, j) => ({ id: `t${i}_${j}`, name: t.name, args: t.args || '', output: t.output || '', done: t.done !== false, isError: !!t.isError }));
-        return { id: `m${i}`, role: 'assistant', text: it.text, thinking: it.thinking || '', tools };
+        return { id: `m${i}`, role: 'assistant', text: it.text, thinking: it.thinking || '', tools, ts };
       });
       return { found: true, file: 'demo.jsonl', model: 'demo-model', name: null, total: messages.length, messages };
     },
@@ -1249,9 +1362,10 @@ const Sim = (() => {
       if (w.kind !== 'agent') return { found: false };
       const cmd = (w.cmd || w.style || '').toLowerCase();
       if (kind === 'pi') {
-        if (w.style !== 'pi' || ['codeaf', 'codex', 'gemini', 'opencode'].includes(cmd)) return { found: false };
+        if (w.style !== 'pi' || ['codeaf', 'codex', 'gemini', 'opencode', 'agent', 'cursor-agent'].includes(cmd)) return { found: false };
         return ops._nativeChat(w);
       }
+      if (kind === 'cursor' && (cmd === 'agent' || cmd === 'cursor-agent' || w.name === 'cursor')) return ops._nativeChat(w);
       if (cmd !== kind && !(kind === 'claude' && w.style === 'claude' && !w.cmd)) return { found: false };
       return ops._nativeChat(w);
     },
@@ -1261,10 +1375,19 @@ const Sim = (() => {
     codex: ({ target }) => ops._chatKind('codex', target),
     gemini: ({ target }) => ops._chatKind('gemini', target),
     opencode: ({ target }) => ops._chatKind('opencode', target),
+    cursor: ({ target }) => ops._chatKind('cursor', target),
     agentAuth: () => ({
       auth: Object.fromEntries(AGENT_CATALOG.map((a) => [a.id, { login: a.login, hint: a.loginHint }])),
-      kinds: ['claude', 'codex', 'gemini', 'opencode'],
+      kinds: ['claude', 'codex', 'gemini', 'opencode', 'cursor'],
     }),
+    persistStatus: () => lastPersistDemo,
+    persistInstall: () => {
+      lastPersistDemo = {
+        tmux: true, tpm: true, resurrect: true, continuum: true,
+        block: true, restore: true, lastSave: Math.floor(Date.now() / 1000), ready: true,
+      };
+      return { ok: true, ...lastPersistDemo };
+    },
     resize: ({ target, cols, rows }) => { const w = find(target); if (cols) Object.assign(w, { cols: Math.max(20, cols), rows: Math.max(8, rows) }); return { ok: true }; },
     agents: ({ bins = [] }) => ({
       agents: Object.fromEntries((bins || []).map((b) => [
@@ -1600,13 +1723,15 @@ let lastPreviews = {}, lastListHtml = '';
 async function refreshWindows() {
   if (document.hidden) return;
   try {
-    const [{ windows }, pv, agentsRes] = await Promise.all([
+    const [{ windows }, pv, agentsRes, persistRes] = await Promise.all([
       api(srv, 'list'),
       api(srv, 'previews', { lines: 20 }).catch(() => ({ previews: {} })),
       api(srv, 'agents', { bins: [...AGENT_CATALOG.map((a) => a.bin), 'htop'] }).catch(() => ({ agents: lastAgents })),
+      api(srv, 'persistStatus').catch(() => lastPersist),
     ]);
     lastWindows = windows; lastWindows.srv = srv.id; lastPreviews = pv.previews || {};
     lastAgents = inferAgentsFromWindows(agentsRes.agents || {}, windows);
+    if (persistRes) lastPersist = persistRes;
     syncBoard(windows);
     // Don't rebuild the DOM mid-swipe / mid-long-press.
     if (!(boardGest && boardGest.tile)) drawWindows(windows);
@@ -1617,63 +1742,154 @@ async function refreshWindows() {
 }
 // Program icon and colour for a window.
 function glyphOf(w) {
-  const cmd = w.command || '', all = `${cmd} ${w.name || ''}`;
-  if (/^codeaf$/i.test(cmd) || /^codeaf$/i.test(w.name || '')) return ['◈', 'agent'];
-  if (/^pi$/i.test(cmd) || /^pi$/i.test(w.name || '')) return ['π', 'pi'];
-  if (/claude/i.test(all)) return ['✻', 'agent'];
-  if (/codex/i.test(all)) return ['◎', 'agent'];
-  if (/gemini/i.test(all)) return ['✦', 'agent'];
-  if (/opencode/i.test(all)) return ['◆', 'agent'];
-  if (/aider/i.test(all)) return ['♦', 'agent'];
-  if (AGENT_RE.test(cmd) || AGENT_RE.test(w.name || '')) return ['◆', 'agent'];
-  if (/weechat|irssi/i.test(all)) return ['#', 'chat'];
-  if (/^(h|b)?top$/.test(cmd)) return ['▤', ''];
-  if (/tail|journalctl|less|logs?/i.test(cmd) || /log/i.test(w.name || '')) return ['≡', ''];
-  return ['$', ''];
+  const cmd = (w.command || '').trim(), name = w.name || '', all = `${cmd} ${name}`;
+  for (const a of AGENT_CATALOG) {
+    // Cursor's CLI binary is the generic name `agent` — match cmd exactly / cursor* names only.
+    if (a.id === 'cursor') {
+      if (/^(agent|cursor-agent)$/i.test(cmd) || /\bcursor(-agent)?\b/i.test(name)) {
+        return [a.glyph, 'agent', a.logo];
+      }
+      continue;
+    }
+    if (new RegExp(`^${a.bin}$`, 'i').test(cmd) || new RegExp(a.bin, 'i').test(name)) {
+      return [a.glyph, a.cls === 'pi' ? 'pi' : 'agent', a.logo];
+    }
+  }
+  if (/^(agent|cursor-agent)$/i.test(cmd) || /\bcursor(-agent)?\b/i.test(name)) return ['▍', 'agent', 'cursor.com'];
+  if (AGENT_RE.test(cmd) || AGENT_RE.test(name)) return ['◆', 'agent', null];
+  if (/weechat|irssi/i.test(all)) return ['#', 'chat', 'weechat.org'];
+  if (/^(h|b)?top$/.test(cmd)) return ['▤', '', null];
+  if (/tail|journalctl|less|logs?/i.test(cmd) || /log/i.test(name)) return ['≡', '', null];
+  return ['$', '', null];
 }
+const agentPresent = (bin) => {
+  if (!bin) return false;
+  if (lastAgents[bin]?.present) return true;
+  // Official Cursor CLI may also appear as cursor-agent on older installs.
+  if (bin === 'agent' && lastAgents['cursor-agent']?.present) return true;
+  return false;
+};
 function inferAgentsFromWindows(agents, windows = lastWindows) {
   const out = { ...(agents || {}) };
   for (const w of windows || []) {
     const cmd = String(w.command || '').toLowerCase();
-    const base = cmd.split('/').pop();
+    const base = cmd.split(/[\s/]/).pop();
     const name = String(w.name || '').toLowerCase();
     for (const a of AGENT_CATALOG) {
-      const b = a.bin.toLowerCase();
-      // pane_current_command is often "node" for JS agents — window name still says pi/claude.
-      if (base === b || name === b || name.startsWith(`${b} `) || name.startsWith(`${b}-`) || name.startsWith(`${b}_`)) {
-        if (!out[a.bin]?.present) out[a.bin] = { present: true, path: out[a.bin]?.path || w.command || a.bin };
+      let hit = false;
+      if (a.id === 'cursor') {
+        // Binary is `agent` — don't treat every "agent" window name as Cursor.
+        hit = base === 'agent' || base === 'cursor-agent' || /\bcursor(-agent)?\b/.test(name);
+      } else {
+        const b = a.bin.toLowerCase();
+        // pane_current_command is often "node" for JS agents — window name still says pi/claude.
+        hit = base === b || name === b || name.startsWith(`${b} `) || name.startsWith(`${b}-`) || name.startsWith(`${b}_`);
       }
+      if (hit && !out[a.bin]?.present) out[a.bin] = { present: true, path: out[a.bin]?.path || w.command || a.bin };
     }
   }
   return out;
 }
 async function refreshAgents(windows = lastWindows) {
   try {
-    const bins = [...AGENT_CATALOG.map((a) => a.bin), 'htop'];
+    const bins = [...AGENT_CATALOG.map((a) => a.bin), 'cursor-agent', 'htop'];
     const { agents } = await api(srv, 'agents', { bins });
     lastAgents = inferAgentsFromWindows(agents || {}, windows);
   } catch { /* keep previous */ }
 }
-const agentPresent = (bin) => !!(bin && lastAgents[bin]?.present);
 // What the program is doing, from the bottom of its screen.
-const WAIT_RE = /\b(y\/n|yes\/no|Allow|Approve|Do you want|Continue\?|Press enter)\b|\[[Yy]\/[Nn]\]|❯\s*1\.\s*Yes/;
+const WAIT_RE = /\b(y\/n|yes\/no|Allow|Approve|Do you want|Continue\?|Press enter|Waiting for authorization|Enter code|device code|paste (your )?(api[_ ]?key|token|code))\b|\[[Yy]\/[Nn]\]|❯\s*1\.\s*Yes/i;
 function statusOf(lines) {
   const txt = lines.join('\n');
   return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
 }
+const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve)/i;
+/** Strip prose accidentally glued onto an OAuth URL (e.g. …comEntertheauthorizationcode). */
+function sanitizeAuthUrl(u) {
+  return String(u || '')
+    .replace(/\s+/g, '')
+    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*)$/i, '')
+    .replace(/[.,;:!?)]+$/g, '');
+}
+/** Terminal hard-wrap splits OAuth URLs across lines (and cleanScreen used to insert spaces).
+ *  Reassemble from `https://` through query continuations into one usable URL. */
+function healWrappedUrls(text) {
+  const lines = String(text ?? '').split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const start = line.search(/https?:\/\//i);
+    if (start < 0) { out.push(line); continue; }
+    const before = line.slice(0, start);
+    let raw = line.slice(start);
+    let j = i + 1;
+    while (j < lines.length) {
+      const n = lines[j].replace(/\s+$/, '').trim();
+      if (!n || AUTH_URL_STOP.test(n) || MARK.test(n)) break;
+      const compact = n.replace(/\s+/g, '');
+      // Prose line (several words, no query junk) — URL ended.
+      if (/\s/.test(n) && !/[=&#%]/.test(n) && n.split(/\s+/).length >= 3) break;
+      if (!/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
+      raw += compact;
+      j++;
+    }
+    out.push(before + sanitizeAuthUrl(raw));
+    // Keep the stop line (e.g. "Enter the authorization code:") as its own row.
+    if (j < lines.length && AUTH_URL_STOP.test(lines[j].trim())) {
+      out.push(lines[j]);
+      j++;
+    }
+    i = j - 1;
+  }
+  return out.join('\n');
+}
+/** Pull login URLs + one-time codes out of a TUI screen — keep it dumb and useful. */
+function authFromText(txt) {
+  if (!txt) return { urls: [], codes: [], wantsPaste: false };
+  const healed = healWrappedUrls(String(txt).replace(ANSI_RE, ''));
+  const urls = [...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|]+/gi)]
+    .map((m) => sanitizeAuthUrl(m[0]))
+    .filter((u) => u.length > 20 && /https?:\/\//i.test(u))
+    .filter((u, i, a) => a.indexOf(u) === i)
+    .slice(0, 3);
+  const codes = [];
+  for (const m of healed.matchAll(/\b([A-Z0-9]{3,8}-[A-Z0-9]{3,8})\b/g)) codes.push(m[1]);
+  for (const m of healed.matchAll(/(?:enter code|code|token|api[_ ]?key)\s*[:=]\s*([A-Za-z0-9._-]{4,})/gi)) {
+    const v = m[1];
+    if (!/^https?/i.test(v) && !codes.includes(v)) codes.push(v);
+  }
+  const wantsPaste = /paste|colle|enter (your )?(api[_ ]?key|token|code|secret)|one-time|verification code|Paste API token|authorization\s*code/i.test(healed);
+  return { urls, codes: codes.slice(0, 3), wantsPaste };
+}
+/** URLs open; device codes tap-to-copy — no extra chrome. */
+function formatScreenText(raw) {
+  const text = healWrappedUrls(raw);
+  const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
+  return parts.map((p, i) => {
+    if (i % 2 === 0) return esc(p);
+    if (/^https?:\/\//i.test(p)) {
+      const href = sanitizeAuthUrl(p);
+      // Long OAuth URLs: keep full href, show a readable head…tail label.
+      const label = href.length > 64 ? `${href.slice(0, 42)}…${href.slice(-14)}` : href;
+      return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+    }
+    return `<button type="button" class="auth-code" data-auth="copy" data-v="${esc(p)}" aria-label="Copier ${esc(p)}">${esc(p)}</button>`;
+  }).join('');
+}
+const linkify = formatScreenText;
 const PILL = { working: '<span class="pill working"><i class="sdot working"></i>en cours</span>', waiting: '<span class="pill waiting"><i class="sdot waiting"></i>t\'attend</span>', idle: '' };
 
 // ---------- dashboard board: order, display names, colours, preview size (tmux names stay untouched) ----------
 const TILE_LINES = { s: 0, m: 3, l: 8, xl: 16 };
 const TILE_COLORS = {
-  mint: '#5be3a4', amber: '#f5b84a', rose: '#ff6b8a', sky: '#6ccdff',
-  violet: '#9d8cff', sand: '#e6c07b', slate: '#8b93a7',
+  mint: '#5be3a4', amber: '#c9a227', rose: '#b87a82', sky: '#7a9bb5',
+  steel: '#8b93a7', sand: '#a8946a', slate: '#6f7688',
 };
 const COLOR_IDS = Object.keys(TILE_COLORS);
 const guessColor = (w) => {
   const [g, cls] = glyphOf(w);
   if (cls === 'pi') return 'mint';
-  if (cls === 'agent') return 'violet';
+  if (cls === 'agent') return 'steel';
   if (cls === 'chat') return 'sky';
   if (g === '≡') return 'amber';
   if (g === '▤') return 'sand';
@@ -1683,28 +1899,38 @@ const guessSize = (w) => (/log|tail|journal/i.test(`${w.name} ${w.command}`) ? '
 const tileId = (w) => `${w.session}:${w.window}`;
 function boardOf() {
   if (!state.board) state.board = {};
-  if (!state.board[srv.id]) state.board[srv.id] = { order: [], tiles: {}, layout: 'auto', editing: false };
+  if (!state.board[srv.id]) state.board[srv.id] = { order: [], sessions: [], tiles: {}, layout: 'auto', editing: false };
   const b = state.board[srv.id];
   if (!b.tiles) b.tiles = {};
   if (!Array.isArray(b.order)) b.order = [];
+  if (!Array.isArray(b.sessions)) b.sessions = [];
   // Older builds always persisted layout:'grid'. Until the user picks Liste/Grille, treat as auto.
   if (!b.layoutPinned && b.layout === 'grid') b.layout = 'auto';
   if (b.layout !== 'list' && b.layout !== 'grid' && b.layout !== 'auto') b.layout = 'auto';
   b.editing = !!b.editing;
   return b;
 }
-/** Effective layout: user pick, else list on phones / grid on wider screens. */
+/** Session name from a tile id (`session:window`). Window index is numeric. */
+const sessionOfTileId = (id) => {
+  const i = String(id).lastIndexOf(':');
+  return i < 0 ? String(id) : String(id).slice(0, i);
+};
+const isPhoneBoard = () => typeof matchMedia === 'function' && matchMedia('(max-width: 540px)').matches;
+/** Effective layout: list on phones (no grille); else user pick / grid on wider screens. */
 function boardLayout() {
+  if (isPhoneBoard()) return 'list';
   const b = boardOf();
   if (b.layout === 'list' || b.layout === 'grid') return b.layout;
-  return (typeof matchMedia === 'function' && matchMedia('(max-width: 540px)').matches) ? 'list' : 'grid';
+  return 'grid';
 }
 function boardEditing() { return !!boardOf().editing; }
 function tileMeta(w) {
   const b = boardOf(), id = tileId(w);
   const t = b.tiles[id] || {};
+  // Older boards used candy "violet" — map to steel.
+  const color = TILE_COLORS[t.color] ? t.color : t.color === 'violet' ? 'steel' : guessColor(w);
   return {
-    id, title: t.title || '', color: TILE_COLORS[t.color] ? t.color : guessColor(w),
+    id, title: t.title || '', color,
     size: TILE_LINES[t.size] != null ? t.size : guessSize(w),
   };
 }
@@ -1730,9 +1956,10 @@ function syncBoard(windows) {
           'main:1': { title: 'CodeAF', size: 'm', color: 'mint' },
           'main:2': { title: 'Agent pi', size: 'm' },
           'main:3': { title: 'Claude', size: 'm' },
-          'main:4': { title: 'Codex', size: 'm' },
-          'main:5': { title: 'Gemini', size: 'm' },
-          'main:6': { title: 'OpenCode', size: 'm' },
+          'main:4': { title: 'Cursor', size: 'm', color: 'slate' },
+          'main:5': { title: 'Codex', size: 'm' },
+          'main:6': { title: 'Gemini', size: 'm' },
+          'main:7': { title: 'OpenCode', size: 'm' },
           'infra:0': { title: 'Logs API', size: 'xl' },
           'infra:1': { title: 'IRC', size: 'm' },
           'infra:2': { title: 'Deploy', size: 'm' },
@@ -1740,10 +1967,37 @@ function syncBoard(windows) {
         if (demo) Object.assign(tile, demo);
       }
       b.tiles[id] = tile; dirty = true;
-    } else if (srv.id === 'demo' && id === 'main:4' && b.tiles[id].title === 'Charge') {
+    } else if (srv.id === 'demo' && id === 'main:5' && b.tiles[id].title === 'Charge') {
       // Older demo seed used a bad label for the Codex window.
       b.tiles[id].title = 'Codex'; dirty = true;
+    } else if (srv.id === 'demo' && id === 'main:4' && (b.tiles[id].title === 'Codex' || b.tiles[id].title === 'Charge')) {
+      // Cursor took the old Codex index after we inserted it in the demo board.
+      b.tiles[id].title = 'Cursor'; b.tiles[id].color = b.tiles[id].color || 'slate'; dirty = true;
     }
+  }
+  // Keep session order: preserve saved order, append newly seen sessions.
+  const liveSessions = [];
+  for (const id of b.order) {
+    const s = sessionOfTileId(id);
+    if (!liveSessions.includes(s)) liveSessions.push(s);
+  }
+  for (const w of windows) if (!liveSessions.includes(w.session)) liveSessions.push(w.session);
+  const nextSessions = b.sessions.filter((s) => liveSessions.includes(s));
+  for (const s of liveSessions) if (!nextSessions.includes(s)) nextSessions.push(s);
+  if (nextSessions.length !== b.sessions.length || nextSessions.some((s, i) => s !== b.sessions[i])) {
+    b.sessions = nextSessions;
+    dirty = true;
+  }
+  // Group tile order by session so session moves stay contiguous.
+  const buckets = Object.fromEntries(b.sessions.map((s) => [s, []]));
+  for (const id of b.order) {
+    const s = sessionOfTileId(id);
+    if (buckets[s]) buckets[s].push(id);
+  }
+  const grouped = b.sessions.flatMap((s) => buckets[s] || []);
+  if (grouped.length !== b.order.length || grouped.some((id, i) => id !== b.order[i])) {
+    b.order = grouped;
+    dirty = true;
   }
   if (dirty) save();
 }
@@ -1756,7 +2010,7 @@ function previewOf(w, n) {
   return { status: statusOf(raw), lines };
 }
 function renderTile(w, openId) {
-  const meta = tileMeta(w), pv = previewOf(w), [g] = glyphOf(w);
+  const meta = tileMeta(w), pv = previewOf(w), [g, , logo] = glyphOf(w);
   const label = displayName(w);
   // Short sub on the board — full tmux path lives in the tile editor.
   const sub = [w.command || w.name, ago(w.activity)].filter(Boolean).join(' · ');
@@ -1772,7 +2026,7 @@ function renderTile(w, openId) {
     <button type="button" class="bdel" data-del aria-label="Supprimer ${esc(label)}">Supprimer</button>
     <article class="btile" role="button" tabindex="0" data-id="${esc(meta.id)}" data-s="${esc(w.session)}" data-w="${w.window}" data-size="${meta.size}" style="--tile-c:${TILE_COLORS[meta.color]}" aria-label="${esc(label)}"${tx}>
       <div class="top">
-        <span class="swatch" aria-hidden="true">${esc(g)}</span>
+        ${logoMark(logo, g, { tile: true })}
         <div class="main"><b>${esc(label)}</b><small>${esc(sub)}</small></div>
         ${PILL[pv.status]}
         ${ops}
@@ -1790,9 +2044,9 @@ function drawWindows(windows) {
     return;
   }
   const byId = Object.fromEntries(windows.map((w) => [tileId(w), w]));
-  const ordered = boardOf().order.map((id) => byId[id]).filter(Boolean);
-  const sessionOrder = [];
-  for (const w of ordered) if (!sessionOrder.includes(w.session)) sessionOrder.push(w.session);
+  const b0 = boardOf();
+  const ordered = b0.order.map((id) => byId[id]).filter(Boolean);
+  const sessionOrder = b0.sessions.slice();
   for (const w of windows) if (!sessionOrder.includes(w.session)) sessionOrder.push(w.session);
   const stats = { working: 0, waiting: 0, idle: 0 };
   ordered.forEach((w) => { stats[previewOf(w).status]++; });
@@ -1802,6 +2056,11 @@ function drawWindows(windows) {
     return `<div class="group-title sess" data-sess="${esc(s)}"><span>${esc(s)}</span>
       <span class="sess-acts">
         <small>${ws.length}</small>
+        <span class="sess-ops" aria-label="Réordonner la session">
+          <button type="button" class="bdrag" data-sess-drag aria-label="Glisser la session">⋮⋮</button>
+          <button type="button" data-sess-move="-1" aria-label="Monter la session">↑</button>
+          <button type="button" data-sess-move="1" aria-label="Descendre la session">↓</button>
+        </span>
         <button type="button" data-sess-new="${esc(s)}" aria-label="Nouvelle fenêtre dans ${esc(s)}">＋</button>
         <button type="button" data-sess-rename="${esc(s)}" aria-label="Renommer la session ${esc(s)}">✎</button>
       </span>
@@ -1814,18 +2073,20 @@ function drawWindows(windows) {
   ].join('');
   const layout = boardLayout();
   const editing = boardEditing();
+  const persistOn = !!(lastPersist && lastPersist.ready);
+  const layoutSeg = isPhoneBoard() ? '' : `<div class="seg" role="group" aria-label="Disposition du dashboard">
+        <button type="button" data-layout="list" class="${layout === 'list' ? 'on' : ''}">Liste</button>
+        <button type="button" data-layout="grid" class="${layout === 'grid' ? 'on' : ''}">Grille</button>
+      </div>`;
   const html = `<div class="board-head">
     <div class="board-pulse">${pulse}</div>
     <div class="board-tools">
       <button type="button" class="board-edit-btn${editing ? ' on' : ''}" data-board-edit aria-pressed="${editing ? 'true' : 'false'}">${editing ? 'OK' : 'Modifier'}</button>
-      <div class="seg" role="group" aria-label="Disposition du dashboard">
-        <button type="button" data-layout="list" class="${layout === 'list' ? 'on' : ''}">Liste</button>
-        <button type="button" data-layout="grid" class="${layout === 'grid' ? 'on' : ''}">Grille</button>
-      </div>
+      <button type="button" class="board-persist${persistOn ? ' on' : ''}" data-persist aria-label="Sessions persistantes">${persistOn ? 'Persist ✓' : 'Persist'}</button>
+      ${layoutSeg}
     </div>
   </div>
     <div class="board" id="board" data-layout="${layout}" data-editing="${editing ? '1' : '0'}">
-      <p class="board-edit-hint" ${editing ? '' : 'hidden'}>Mode édition : ↑↓ ou glisse ⋮⋮ pour réordonner · touche une tuile pour nom, couleur, taille.</p>
       ${board}
     </div>`;
   if (html !== lastListHtml) {
@@ -1864,6 +2125,38 @@ function moveTileTo(id, anchorId, where = 'before') {
   save(); lastListHtml = ''; drawWindows(lastWindows);
   return true;
 }
+/** Rebuild board.order from board.sessions, keeping within-session tile order. */
+function rebuildOrderBySessions() {
+  const b = boardOf();
+  const buckets = Object.fromEntries(b.sessions.map((s) => [s, []]));
+  for (const id of b.order) {
+    const s = sessionOfTileId(id);
+    if (buckets[s]) buckets[s].push(id);
+  }
+  b.order = b.sessions.flatMap((s) => buckets[s] || []);
+}
+function moveSession(session, dir) {
+  const b = boardOf();
+  const i = b.sessions.indexOf(session);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= b.sessions.length) return false;
+  return moveSessionTo(session, b.sessions[j], dir > 0 ? 'after' : 'before');
+}
+/** Place a whole session group before/after another session. */
+function moveSessionTo(session, anchorSession, where = 'before') {
+  const b = boardOf();
+  if (!session || !anchorSession || session === anchorSession) return false;
+  if (!b.sessions.includes(session) || !b.sessions.includes(anchorSession)) return false;
+  const without = b.sessions.filter((s) => s !== session);
+  let at = without.indexOf(anchorSession);
+  if (at < 0) return false;
+  if (where === 'after') at += 1;
+  without.splice(at, 0, session);
+  b.sessions = without;
+  rebuildOrderBySessions();
+  save(); lastListHtml = ''; drawWindows(lastWindows);
+  return true;
+}
 function remapBoardSession(from, to) {
   const b = boardOf();
   const nextTiles = {};
@@ -1872,6 +2165,7 @@ function remapBoardSession(from, to) {
   }
   b.tiles = nextTiles;
   b.order = b.order.map((id) => (id.startsWith(`${from}:`) ? `${to}:${id.slice(from.length + 1)}` : id));
+  b.sessions = b.sessions.map((s) => (s === from ? to : s));
   save();
 }
 function confirmKillWindow(w) {
@@ -1969,6 +2263,12 @@ function openTileEditor(w) {
           remapBoardSession(w.session, sessName);
           lastWindows.forEach((x) => { if (x.session === w.session) x.session = sessName; });
         }
+        if (W.win && tileId(W.win) === id) {
+          W.win = { ...W.win, name: w.name, session: w.session };
+          $('#win-name').textContent = displayName(W.win);
+          setSub();
+          setWinChrome();
+        }
         closeSheet(); lastListHtml = ''; drawWindows(lastWindows);
       } catch (e) { toast(e.message); }
     });
@@ -1994,10 +2294,13 @@ const closeOpenRows = (except) => {
   if (boardGest) boardGest.openId = except?.dataset?.id || '';
 };
 function clearDropTargets() {
-  $$('#board .btile.drop-target').forEach((t) => t.classList.remove('drop-target'));
+  $$('#board .btile.drop-target, #board .group-title.sess.drop-target').forEach((t) => t.classList.remove('drop-target'));
 }
 function peerTiles(session) {
   return [...document.querySelectorAll(`#board .btile[data-s="${CSS.escape(session)}"]`)];
+}
+function sessionHeads() {
+  return [...document.querySelectorAll('#board .group-title.sess[data-sess]')];
 }
 function startDragReorder(tile, e) {
   const id = tile.dataset.id;
@@ -2010,6 +2313,16 @@ function startDragReorder(tile, e) {
   tile.classList.add('dragging');
   tile.classList.remove('pressing');
   try { tile.setPointerCapture(e.pointerId); } catch {}
+  haptic(10);
+}
+function startSessionDrag(head, e) {
+  const session = head.dataset.sess;
+  boardGest = {
+    mode: 'sess-drag', tile: head, session, pid: e.pointerId,
+    y0: e.clientY, x0: e.clientX, moved: false, done: false,
+  };
+  head.classList.add('dragging');
+  try { head.setPointerCapture(e.pointerId); } catch {}
   haptic(10);
 }
 function updateDragReorder(e) {
@@ -2036,6 +2349,30 @@ function updateDragReorder(e) {
     g.dropId = null;
   }
 }
+function updateSessionDrag(e) {
+  const g = boardGest; if (!g || g.mode !== 'sess-drag' || !g.tile) return;
+  if (g.pid != null && e.pointerId !== g.pid) return;
+  e.preventDefault();
+  const dy = e.clientY - g.y0;
+  if (Math.abs(dy) > 4 || Math.abs(e.clientX - g.x0) > 4) g.moved = true;
+  g.tile.style.transform = `translateY(${dy}px)`;
+  clearDropTargets();
+  const y = e.clientY;
+  let over = null;
+  for (const h of sessionHeads()) {
+    if (h === g.tile) continue;
+    const r = h.getBoundingClientRect();
+    if (y >= r.top && y <= r.bottom) { over = h; break; }
+  }
+  if (over) {
+    over.classList.add('drop-target');
+    g.dropSession = over.dataset.sess;
+    const mid = over.getBoundingClientRect().top + over.getBoundingClientRect().height / 2;
+    g.dropWhere = y < mid ? 'before' : 'after';
+  } else {
+    g.dropSession = null;
+  }
+}
 function endDragReorder(e) {
   const g = boardGest; if (!g || g.mode !== 'drag' || !g.tile || g.done) return;
   if (e && g.pid != null && e.pointerId !== g.pid) return;
@@ -2050,9 +2387,30 @@ function endDragReorder(e) {
     if (ok) toast('Tuile déplacée', true);
   }
 }
+function endSessionDrag(e) {
+  const g = boardGest; if (!g || g.mode !== 'sess-drag' || !g.tile || g.done) return;
+  if (e && g.pid != null && e.pointerId !== g.pid) return;
+  g.done = true;
+  g.tile.classList.remove('dragging');
+  g.tile.style.transform = '';
+  clearDropTargets();
+  const dropSession = g.dropSession, where = g.dropWhere, session = g.session;
+  boardGest = { openId: '' };
+  if (dropSession) {
+    const ok = moveSessionTo(session, dropSession, where);
+    if (ok) toast('Session déplacée', true);
+  }
+}
 $('#windows').addEventListener('pointerdown', (e) => {
   // Controls that own the click — don't start a tile gesture.
-  if (e.target.closest('[data-new], [data-retry], button[data-layout], [data-board-edit], .bdel, .sess-acts, .appearance-toggle, [data-move]')) return;
+  if (e.target.closest('[data-new], [data-retry], button[data-layout], [data-board-edit], [data-persist], .bdel, .appearance-toggle, [data-move], [data-sess-move], [data-sess-new], [data-sess-rename]')) return;
+  const sessDrag = e.target.closest('[data-sess-drag]');
+  if (sessDrag) {
+    const head = sessDrag.closest('.group-title.sess'); if (!head) return;
+    e.preventDefault();
+    startSessionDrag(head, e);
+    return;
+  }
   const drag = e.target.closest('[data-drag]');
   if (drag) {
     const tile = drag.closest('.btile'); if (!tile) return;
@@ -2086,8 +2444,7 @@ $('#windows').addEventListener('pointerdown', (e) => {
     haptic(16);
     const w = winFromEl(tile);
     boardGest = null;
-    // Enter edit mode so ↑↓ / drag stay visible after the sheet.
-    boardOf().editing = true; save(); lastListHtml = ''; drawWindows(lastWindows);
+    // Long-press opens this tile's sheet only — don't flip the whole board into drag mode.
     if (w) openTileEditor(w);
   }, 420);
   try { tile.setPointerCapture(e.pointerId); } catch {}
@@ -2096,6 +2453,7 @@ $('#windows').addEventListener('pointermove', (e) => {
   const g = boardGest; if (!g || g.opened || !g.tile || g.done) return;
   if (g.pid != null && e.pointerId !== g.pid) return;
   if (g.mode === 'drag') return updateDragReorder(e);
+  if (g.mode === 'sess-drag') return updateSessionDrag(e);
   const dx = e.clientX - g.x, dy = e.clientY - g.y;
   if (g.mode === 'edit-tap') {
     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
@@ -2134,6 +2492,7 @@ const endBoardGest = (e) => {
   const g = boardGest; if (!g?.tile || g.done) return; // openId-only marker must not run the end path
   if (e && g.pid != null && e.pointerId !== g.pid) return;
   if (g.mode === 'drag') return endDragReorder(e);
+  if (g.mode === 'sess-drag') return endSessionDrag(e);
   g.done = true;
   clearTimeout(g.long);
   g.tile.classList.remove('pressing', 'swiping');
@@ -2188,8 +2547,21 @@ $('#windows').addEventListener('click', (e) => {
     }
     return;
   }
+  const sessMove = e.target.closest('[data-sess-move]');
+  if (sessMove) {
+    e.preventDefault();
+    const head = sessMove.closest('[data-sess]');
+    const session = head?.dataset?.sess;
+    const dir = Number(sessMove.dataset.sessMove);
+    if (session && dir) {
+      const ok = moveSession(session, dir);
+      toast(ok ? 'Session déplacée' : 'Déjà en bout de liste', ok);
+    }
+    return;
+  }
   const layoutBtn = e.target.closest('button[data-layout]');
   if (layoutBtn) {
+    if (isPhoneBoard()) return; // mobile stays list-only
     const b = boardOf();
     b.layout = layoutBtn.dataset.layout === 'list' ? 'list' : 'grid';
     b.layoutPinned = true;
@@ -2200,6 +2572,10 @@ $('#windows').addEventListener('click', (e) => {
     const b = boardOf();
     b.editing = !b.editing;
     save(); lastListHtml = ''; drawWindows(lastWindows);
+    return;
+  }
+  if (e.target.closest('[data-persist]')) {
+    openPersistSheet();
     return;
   }
   const sessNew = e.target.closest('[data-sess-new]');
@@ -2286,17 +2662,21 @@ async function loginAgent(a) {
   closeSheet();
   try {
     const session = newSession || srv.session || 'main';
+    const winName = `auth-${a.id}`;
     const r = await api(srv, 'new', {
-      session, name: `auth-${a.bin}`, command: a.login, cwd: srv.cwd || undefined,
+      session, name: winName, command: a.login, cwd: srv.cwd || undefined,
     });
     const win = {
-      session: r.session, window: r.window, name: `auth-${a.bin}`,
+      session: r.session, window: r.window, name: winName,
       command: a.login.split(/\s+/)[0],
     };
-    // Interactive CLI login belongs in the TUI, not the native chat view.
-    state.modes[`${srv.id}|${win.session}:${win.window}`] = 'term';
+    // Chat: URLs/codes become Ouvrir · Copier · Coller chips — faster than hunting in the TUI.
+    state.modes[`${srv.id}|${win.session}:${win.window}`] = 'chat';
+    // Readable label on the board / header (tmux name stays auth-<id>).
+    const b = boardOf();
+    b.tiles[tileId(win)] = { ...(b.tiles[tileId(win)] || {}), title: a.label, color: guessColor(win) };
     save();
-    toast(`Login ${a.label} — suis les étapes dans le terminal`, true);
+    toast(`Login ${a.label}`, true);
     openWindow(win);
   } catch (e) { toast(e.message); }
 }
@@ -2313,34 +2693,48 @@ $('#new-window').addEventListener('click', async () => {
     const ready = AGENT_CATALOG.filter((a) => agentPresent(a.bin));
     const missing = AGENT_CATALOG.filter((a) => !agentPresent(a.bin));
     const tools = TOOL_PRESETS.filter((t) => !t.bin || agentPresent(t.bin) || t.bin === null);
+    const mark = (a) => logoMark(a.logo, a.glyph);
     const readyHtml = ready.length
       ? `<div class="presets">${ready.map((a) => `
-        <button type="button" class="preset ${esc(a.cls)}" data-run="${esc(a.bin)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>${esc(a.cmd)}</small></button>`).join('')}
+        <button type="button" class="preset ${esc(a.cls)}" data-run="${esc(a.bin)}">${mark(a)}${esc(a.label)}<small>${esc(a.cmd)}</small></button>`).join('')}
         ${tools.map((t) => `
-        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}"><span class="glyph">${esc(t.glyph)}</span>${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}
+        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}">${logoMark(t.logo, t.glyph)}${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}
       </div>`
-      : `<p class="hint">Aucun agent détecté sur ce serveur. Installe-en un ci-dessous (commande officielle).</p>
+      : `<p class="hint">Aucun agent détecté. Installe-en un ci-dessous.</p>
         <div class="presets">${tools.map((t) => `
-        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}"><span class="glyph">${esc(t.glyph)}</span>${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}</div>`;
+        <button type="button" class="preset" data-run="${esc(t.bin || '')}" data-cmd="${esc(t.cmd)}" data-label="${esc(t.label)}">${logoMark(t.logo, t.glyph)}${esc(t.label)}<small>${esc(t.cmd || 'shell')}</small></button>`).join('')}</div>`;
     const missHtml = missing.length ? `<details class="miss-agents">
-      <summary>Pas encore installés <small>${missing.length}</small></summary>
+      <summary>Installer <small>${missing.length}</small></summary>
       <div class="presets">${missing.map((a) => `
-        <button type="button" class="preset miss ${esc(a.cls)}" data-install="${esc(a.id)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>installer</small></button>`).join('')}
+        <button type="button" class="preset miss ${esc(a.cls)}" data-install="${esc(a.id)}">${mark(a)}${esc(a.label)}<small>installer</small></button>`).join('')}
       </div>
-      <p class="hint">Chaque fiche ouvre la doc officielle et la commande recommandée par l’éditeur.</p>
     </details>` : '';
     const authAgents = AGENT_CATALOG.filter((a) => a.login && (agentPresent(a.bin) || missing.some((m) => m.id === a.id)));
     const authHtml = authAgents.length ? `<details class="miss-agents">
       <summary>Connexion CLI <small>${authAgents.length}</small></summary>
       <div class="presets">${authAgents.map((a) => `
-        <button type="button" class="preset ${esc(a.cls)}" data-login="${esc(a.id)}"><span class="glyph">${esc(a.glyph)}</span>${esc(a.label)}<small>${esc(a.login)}</small></button>`).join('')}
+        <button type="button" class="preset ${esc(a.cls)}" data-login="${esc(a.id)}">${mark(a)}${esc(a.label)}<small>${esc(a.login)}</small></button>`).join('')}
       </div>
-      <p class="hint">Lance le login officiel de chaque agent dans une fenêtre tmux (navigateur / code / clé selon l’outil).</p>
     </details>` : '';
+    const tplHtml = `<div class="tpl-row">${TEMPLATES.map((t) => `
+      <button type="button" class="tpl-chip" data-tpl="${esc(t.id)}">${esc(t.label)}<small>${esc(t.blurb)}</small></button>`).join('')}
+    </div>`;
+    const p = lastPersist;
+    const persistHtml = `<div class="persist-card">
+      <div class="main"><b>Sessions persistantes</b>
+        <small>${p?.ready
+          ? `Actif${p.lastSave ? ` · sauvé ${ago(p.lastSave)}` : ''} — survive aux reboots`
+          : 'tmux-resurrect + continuum : les sessions reviennent après un restart'}</small>
+      </div>
+      <button type="button" class="btn ${p?.ready ? 'ghost' : ''}" data-persist-install>${p?.ready ? 'Vérifier' : 'Activer'}</button>
+    </div>`;
     openSheet(`
       <h3>Nouvelle fenêtre</h3>
-      <div class="sub">Disponibles sur ce serveur</div>
+      <div class="sub">Templates</div>
+      ${tplHtml}
+      <div class="sub">Agents & outils</div>
       ${readyHtml}
+      ${persistHtml}
       ${authHtml}
       ${missHtml}
       <div class="sub">Session</div>
@@ -2355,6 +2749,9 @@ $('#new-window').addEventListener('click', async () => {
       };
       drawChips();
       el.addEventListener('click', (e) => {
+        const tpl = e.target.closest('[data-tpl]');
+        if (tpl) { launchTemplate(tpl.dataset.tpl); return; }
+        if (e.target.closest('[data-persist-install]')) { installPersist(); return; }
         const inst = e.target.closest('[data-install]');
         if (inst) {
           const a = AGENT_CATALOG.find((x) => x.id === inst.dataset.install);
@@ -2399,6 +2796,74 @@ async function createWindow(name, cmd) {
     openWindow({ session: r.session, window: r.window, name: name || 'shell', command: cmd ? cmd.split(/\s+/)[0] : 'shell' });
   } catch (e) { toast(e.message); }
 }
+function pickTemplateAgentCmd() {
+  for (const id of ['pi', 'claude', 'agent', 'codex', 'codeaf', 'gemini', 'opencode']) {
+    if (agentPresent(id)) return id;
+  }
+  return 'pi';
+}
+async function launchTemplate(id) {
+  const tpl = TEMPLATES.find((t) => t.id === id);
+  if (!tpl) return;
+  closeSheet();
+  const session = newSession || srv.session || 'main';
+  const cwd = srv.cwd || undefined;
+  const agentCmd = pickTemplateAgentCmd();
+  let last = null;
+  try {
+    for (const w of tpl.windows) {
+      let cmd = w.cmd;
+      if (cmd === 'pi' || (w.name === 'agent' && cmd === 'pi')) cmd = agentCmd;
+      last = await api(srv, 'new', {
+        session, name: w.name || cmd || 'shell',
+        command: cmd || undefined,
+        cwd: w.cwd ? cwd : undefined,
+      });
+    }
+    toast(`Template « ${tpl.label} » lancé`, true);
+    if (last) {
+      openWindow({
+        session: last.session, window: last.window,
+        name: tpl.windows[tpl.windows.length - 1].name || 'shell',
+        command: (tpl.windows[tpl.windows.length - 1].cmd || 'shell').split(/\s+/)[0] || 'shell',
+      });
+    }
+    refreshWindows();
+  } catch (e) { toast(e.message); }
+}
+function persistAgoLabel(st) {
+  if (!st?.lastSave) return 'pas encore de sauvegarde';
+  return `sauvé ${ago(st.lastSave)}`;
+}
+async function openPersistSheet() {
+  try { lastPersist = await api(srv, 'persistStatus'); } catch (e) { /* keep cache */ }
+  const p = lastPersist || { ready: false };
+  openSheet(`<h3>Sessions persistantes</h3>
+    <div class="persist-card" style="margin-top:0">
+      <div class="main">
+        <b>${p.ready ? 'Actif sur ce serveur' : 'Non installé'}</b>
+        <small>${p.ready
+          ? `tmux-resurrect + continuum · ${persistAgoLabel(p)}. Au prochain boot, tes sessions reviennent (layout, dossiers, commandes — pas l’état RAM des agents).`
+          : 'Installe TPM, tmux-resurrect et continuum. Un clic configure ~/.tmux.conf sans toucher au reste.'}</small>
+      </div>
+    </div>
+    <p class="hint">Les fenêtres créées depuis pocket tournent dans un shell et gardent remain-on-exit : l’agent peut quitter sans fermer la fenêtre.</p>
+    <button type="button" class="btn" id="persist-go">${p.ready ? 'Réinstaller / mettre à jour' : 'Activer en un clic'}</button>
+    <button type="button" class="btn ghost" id="persist-close">Fermer</button>`, (el) => {
+    $('#persist-close', el).onclick = closeSheet;
+    $('#persist-go', el).onclick = () => installPersist();
+  });
+}
+async function installPersist() {
+  try {
+    toast('Installation…');
+    lastPersist = await api(srv, 'persistInstall');
+    closeSheet();
+    lastListHtml = '';
+    drawWindows(lastWindows);
+    toast(lastPersist.ready ? 'Sessions persistantes actives' : 'Installé — redémarre tmux si besoin', true);
+  } catch (e) { toast(e.message); }
+}
 
 // =====================================================================
 // Screen 4: a window — Terminal (native-scrolling HTML view) or Chat (agent-native view)
@@ -2433,6 +2898,11 @@ const PROFILES = [
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'modèle', h: '/model', cmd: '/model', term: true }, { l: 'compact', h: '/compact', cmd: '/compact' },
     { l: 'cost', h: '/cost', cmd: '/cost' }, { l: '/', h: 'commande', t: '/' }] },
+  { id: 'cursor', match: /^(agent|cursor-agent)$/i, chat: 'cursor', stop: 'Escape', ctx: [
+    { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
+    { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
+    { l: 'plan', h: '/plan', cmd: '/plan', term: true }, { l: 'ask', h: '/ask', cmd: '/ask', term: true },
+    { l: 'login', h: 'agent login', cmd: 'agent login', term: true }, { l: '/', h: 'commande', t: '/' }] },
   { id: 'codex', match: /^codex$/i, chat: 'codex', stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
@@ -2581,7 +3051,7 @@ function orderedWindows() {
 }
 function loadWindow(win) {
   leaveWindow();
-  Object.assign(W, { win, last: '', ctxHtml: '', pi: null, piState: 'unknown', screen: null, termCap: null, pending: null, buffers: [], n: 0, toBottom: true, open: new Set() });
+  Object.assign(W, { win, last: '', ctxHtml: '', pi: null, piState: 'unknown', screen: null, termCap: null, pending: null, buffers: [], n: 0, toBottom: true, open: new Set(), tsOpen: new Set() });
   KBD.echo = '';
   W.profile = profileOf(win);
   try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
@@ -2621,18 +3091,19 @@ async function openWindowSwitcher() {
   } catch { /* use last known list */ }
   const list = orderedWindows();
   if (!list.length) return toast('Aucune fenêtre');
-  const sessions = [];
+  const sessions = boardOf().sessions.slice();
   for (const w of list) if (!sessions.includes(w.session)) sessions.push(w.session);
   const cur = W.win ? tileId(W.win) : '';
   const body = sessions.map((s) => {
     const ws = list.filter((w) => w.session === s);
     const rows = ws.map((w) => {
-      const [g] = glyphOf(w);
+      const [g, , logo] = glyphOf(w);
+      const meta = tileMeta(w);
       const id = tileId(w);
       const on = id === cur ? ' on' : '';
       const sub = [w.command, w.name !== displayName(w) ? w.name : ''].filter(Boolean).join(' · ');
-      return `<button type="button" class="row${on}" data-sw="${esc(id)}">
-        <span class="glyph" aria-hidden="true">${esc(g)}</span>
+      return `<button type="button" class="row${on}" data-sw="${esc(id)}" style="--tile-c:${TILE_COLORS[meta.color]}">
+        ${logoMark(logo, g, { tile: true })}
         <div class="main"><b>${esc(displayName(w))}</b><small>${esc(sub || `${w.session}:${w.window}`)}</small></div>
         ${on ? '<span class="pill working">ici</span>' : PILL[previewOf(w).status] || ''}
       </button>`;
@@ -2653,6 +3124,7 @@ async function openWindowSwitcher() {
 function enterWindow() {
   $('#win-name').textContent = displayName(W.win);
   setSub();
+  setWinChrome();
   resetTerm();
   W.mods.clear(); Object.assign(KBD, { layer: 'abc', shift: 0, queue: [] }); drawKeys();
   setMode(W.mode);
@@ -2663,6 +3135,26 @@ function setSub() {
   const model = W.pi?.model ? ` · ${W.pi.model}` : '';
   const tm = W.win.name !== displayName(W.win) ? `${W.win.name} · ` : '';
   $('#win-sub').textContent = `${W.win.session}:${W.win.window} · ${tm}${W.win.command || ''}${model}`;
+}
+/** Sync header logo + dashboard tile colour into the open window / chat chrome. */
+function setWinChrome() {
+  if (!W.win) return;
+  const meta = tileMeta(W.win);
+  const [g, , logo] = glyphOf(W.win);
+  const hex = TILE_COLORS[meta.color] || TILE_COLORS.slate;
+  $('#v-window').style.setProperty('--win-c', hex);
+  const mark = $('#win-mark');
+  if (!mark) return;
+  const key = `${logo || ''}|${g}|${hex}`;
+  if (mark.dataset.key !== key) {
+    mark.dataset.key = key;
+    mark.classList.toggle('fallback', !logo);
+    mark.innerHTML = logo
+      ? `<img src="${logoUrl(logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add('fallback')"><span class="glyph-fb" aria-hidden="true">${esc(g || '?')}</span>`
+      : `<span class="glyph-fb" aria-hidden="true">${esc(g || '?')}</span>`;
+  }
+  mark.classList.toggle('working', W.status === 'working');
+  mark.classList.toggle('waiting', W.status === 'waiting');
 }
 $('#win-switch').addEventListener('click', () => openWindowSwitcher());
 // Refresh fast while you interact or the program is working, slowly otherwise.
@@ -2679,7 +3171,7 @@ function schedule() {
 const touched = () => { W.touched = Date.now(); if (W.status !== 'working' && !kbBusy()) schedule(); };
 function setStatus(st) {
   W.status = st;
-  $('#win-dot').className = `sdot ${st}`;
+  setWinChrome();
   $('#send').classList.toggle('stop', st === 'working' && !$('#input').value && !!W.profile.stop);
   $('#send').setAttribute('aria-label', $('#send').classList.contains('stop') ? 'Interrompre' : 'Envoyer');
   drawSuggest();
@@ -2728,9 +3220,14 @@ async function fitToPhone() {
   const box = $('#termbox');
   const width = (box.clientWidth || $('#app').clientWidth) - 12;
   const height = (box.clientHeight || 500) - 16 - kbPad(); // #termlines padding, and the keyboard unless the TUI runs under it
-  const cols = Math.max(30, Math.floor(width / (FONT * cellRatio())));
+  const ratio = cellRatio();
+  // Agent TUIs draw boxes: prefer ≥56 cols and shrink the font rather than crush borders (⚠/emoji).
+  const agentish = W.profile && W.profile.id !== 'shell' && !W.profile.buffers;
+  const minCols = agentish ? 56 : 30;
+  let cols = Math.max(30, Math.floor(width / (FONT * ratio)));
+  if (cols < minCols) cols = Math.min(minCols, Math.max(36, Math.floor(width / (7.5 * ratio))));
   // Same font and line height as drawTerm will pick for this width.
-  const fs = Math.max(6, Math.min(14, Math.floor((width / (cols * cellRatio())) * 2) / 2));
+  const fs = Math.max(6, Math.min(14, Math.floor((width / (cols * ratio)) * 2) / 2));
   const rows = Math.max(10, Math.floor(height / Math.round(fs * LINE_H)));
   try { await api(srv, 'resize', { target: W.win, cols, rows }); W.fitted = true; } catch (e) { /* old tmux: fall back to scaling */ }
 }
@@ -3075,29 +3572,94 @@ function parseBuffers(screen) {
 // ---------- chat ----------
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
 const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g;
+const BLOCK_CH = /[█▉▊▋▌▍▎▏▐▀▄▆▇▅▃▂▁■▪▫▮▬▓▒░]/;
+/** Box rules (─) and Gemini-style solid block bars (█▆…). */
 const RULE = /^\s*[╭┌╰└]?[─━═-]{8,}[╮┐╯┘]?\s*$/;
+const isBlockRule = (l) => {
+  const t = String(l || '').replace(/\s+/g, '');
+  return t.length >= 6 && [...t].every((c) => BLOCK_CH.test(c));
+};
+const isRuleLine = (l) => RULE.test(l) || isBlockRule(l);
+/** Gemini / Cursor / Ink chrome that must not leak into the chat fallback. */
+const TUI_CHROME = /^(?:Shift\+Tab to accept|Type your message or @|Tips for getting started|Gemini CLI v[\d.]+|workspace\s*\([^)]*\)|\/model\b|no sandbox\b|sandbox\s*$|Auto\s*$|~\s*$|\?\s*$|⚠?\s*Workspace Trust Required|Cursor Agent can execute|Do you trust the contents|\[a\]\s*Trust this workspace|\[q\]\s*Quit|⌛?\s*Trusting workspace|Cursor Agent(?:\s+v[\w.-]+)?\s*$|v?\d{4}\.\d{2}\.\d{2}-[\w]+\s*$|Tip:\s*Hit shift\+tab|\/home\/\S+\s*$)/i;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
-const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·]\s*(Working|Thinking|Running|Generating|Esc to|Pondering)/i;
-const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|copilot)\b/;
+const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·✦]\s*(Working|Thinking|Running|Generating|Esc to|Pondering|Waiting)|Trusting workspace/i;
+const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|agent|copilot)\b/;
 function cleanScreen(screen, width = 80) {
   let lines = screen.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
   while (lines.length && !lines[lines.length - 1]) lines.pop();
-  // Drop the TUI's bottom chrome (input box, footer): cut at the first rule among the last 6 lines.
+  // Gemini / Ink: drop the prompt + status footer as a band (keep conversation above).
+  // Do not cut on Cursor's top tip banner — that would drop the thread below it.
+  const chromeAt = lines.findIndex((l) => /Shift\+Tab to accept|>\s*Type your message/i.test(l));
+  if (chromeAt > 0) lines = lines.slice(0, chromeAt);
+  // Classic TUIs: cut at the first box-drawing rule among the last 6 lines (input border).
+  // Do NOT cut on mid-screen block bars (█▆) — those are filtered per-line below.
   const from = Math.max(0, lines.length - 6);
   const cutAt = lines.findIndex((l, i) => i >= from && RULE.test(l) && !SPIN.test(l));
   if (cutAt > 0) lines = lines.slice(0, cutAt);
-  lines = lines.filter((l) => !RULE.test(l) && !SPIN.test(l)).map((l) => l.replace(BOX_EDGE, ''));
-  // Undo the terminal's hard wrapping so prose reflows in a bubble.
+  lines = lines
+    .filter((l) => {
+      const t = l.trim();
+      if (!t) return false;
+      if (isRuleLine(l) || SPIN.test(l) || TUI_CHROME.test(t)) return false;
+      // Cursor ask-mode glyph / lone status crumbs.
+      if (/^[?~]$/.test(t)) return false;
+      return true;
+    })
+    .map((l) => l.replace(BOX_EDGE, '').replace(new RegExp(`${BLOCK_CH.source}+`, 'g'), ' ').replace(/\s{2,}/g, ' ').trimEnd());
+  // Undo the terminal's hard wrapping so prose reflows. URL/query wraps must NOT gain a space
+  // (that produced broken OAuth links like …auth?redirec + t_uri → only the head was clickable).
   const out = [];
   for (const l of lines) {
     const prev = out[out.length - 1];
-    if (prev && prev.wide && l.trim() && !MARK.test(l)) { prev.text += ' ' + l.trim(); prev.wide = l.length >= width - 16; }
-    else out.push({ text: l, wide: l.length >= width - 16 });
+    const t = l.trim();
+    if (!t) continue;
+    if (prev && prev.wide && t && !MARK.test(l)) {
+      const urlOpen = /https?:\/\/\S*$/i.test(prev.text);
+      if (urlOpen && AUTH_URL_STOP.test(t)) {
+        out.push({ text: l, wide: l.length >= width - 16 });
+      } else {
+        prev.text += (urlOpen ? t.replace(/\s+/g, '') : ` ${t}`);
+        prev.wide = l.length >= width - 16;
+      }
+    } else out.push({ text: l, wide: l.length >= width - 16 });
   }
-  return out.map((o) => o.text).join('\n').replace(/\n{3,}/g, '\n\n').trim().split('\n');
+  return healWrappedUrls(out.map((o) => o.text).join('\n').replace(/\n{3,}/g, '\n\n').trim()).split('\n');
 }
 const working = () => !!W.screen && SPIN.test(W.screen.screen.replace(ANSI_RE, ''));
-const stripPrompt = (l) => l.replace(/^\s*[>❯›]\s*/, '').trim();
+/** Cursor uses → ; Claude/pi use >❯›. */
+const stripPrompt = (l) => l.replace(/^\s*[>❯›→]\s*/, '').trim();
+const MSG_TS_W = 58;
+/** Format a transcript timestamp for the swipe-reveal label (empty if unknown). */
+function fmtMsgTs(ts) {
+  if (ts == null || ts === '') return '';
+  let d;
+  if (typeof ts === 'number') d = new Date(ts < 1e12 ? ts * 1000 : ts);
+  else d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  try {
+    return sameDay
+      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return sameDay ? d.toISOString().slice(11, 16) : d.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+/** Wrap a bubble so a slight left swipe reveals the time when available. */
+function wrapTs(inner, ts, id) {
+  const label = fmtMsgTs(ts);
+  if (!label) return inner;
+  const mid = id || '';
+  const on = mid && W.tsOpen?.has(mid);
+  const style = on ? ` style="transform:translateX(-${MSG_TS_W}px)"` : '';
+  return `<div class="mrow${on ? ' revealed' : ''}" data-ts="${esc(label)}"${mid ? ` data-mid="${esc(mid)}"` : ''}>`
+    + `<div class="mslide"${style}>${inner}</div>`
+    + `<time class="mts" datetime="${esc(typeof ts === 'string' ? ts : label)}">${esc(label)}</time></div>`;
+}
+const sentText = (x) => (typeof x === 'string' ? x : x?.t || '').trim();
+const sentTsOf = (x) => (typeof x === 'string' ? null : x?.ts ?? null);
 
 // Small markdown: code blocks, inline code, bold, headings. Input is escaped first.
 function md(text) {
@@ -3119,13 +3681,13 @@ function renderPi() {
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
   if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
-  const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
+  const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', cursor: 'Cursor', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
   let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
   if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
   for (const m of msgs) {
-    if (m.role === 'user') html += `<div class="msg user">${esc(m.text)}</div>`;
+    if (m.role === 'user') html += wrapTs(`<div class="msg user">${esc(m.text)}</div>`, m.ts, m.id);
     else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
-    else if (m.role === 'bash') html += `<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`;
+    else if (m.role === 'bash') html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
     else if (m.role === 'assistant') {
       let body = '';
       if (m.thinking) body += fold(`${m.id}:t`, 'think', '▸ réflexion', `<pre>${esc(m.thinking)}</pre>`);
@@ -3136,7 +3698,7 @@ function renderPi() {
       }
       if (m.error) body += `<div class="err-line">Erreur : ${esc(m.error)}</div>`;
       if (m.aborted) body += `<div class="err-line">Interrompu</div>`;
-      if (body) html += `<div class="pmsg assistant">${body}</div>`;
+      if (body) html += wrapTs(`<div class="pmsg assistant">${body}</div>`, m.ts, m.id);
     }
   }
   if (W.pending) html += `<div class="msg user pending">${esc(W.pending)}</div>`;
@@ -3158,15 +3720,21 @@ function renderGeneric() {
   let start = -1;
   lines.forEach((l, i) => { if (LAUNCH.test(l)) start = i; });
   if (start >= 0) lines = lines.slice(start + 1);
-  const sent = new Set(W.sent.map((t) => t.trim()));
-  let html = '', block = [];
+  const sentMap = new Map();
+  for (const x of W.sent) {
+    const t = sentText(x); if (t) sentMap.set(t, sentTsOf(x));
+  }
+  let html = '', block = [], bi = 0;
   const flush = () => {
     const text = block.join('\n').trim(); block = [];
-    if (text) html += `<div class="msg agent"><span class="who">${esc(W.win.name)}</span>${esc(text)}</div>`;
+    if (text) html += `<div class="msg agent"><span class="who">${esc(W.win.name)}</span>${formatScreenText(text)}</div>`;
   };
   for (const l of lines) {
-    if (sent.has(stripPrompt(l)) && stripPrompt(l)) { flush(); html += `<div class="msg user">${esc(stripPrompt(l))}</div>`; }
-    else block.push(l);
+    const p = stripPrompt(l);
+    if (p && sentMap.has(p)) {
+      flush();
+      html += wrapTs(`<div class="msg user">${esc(p)}</div>`, sentMap.get(p), `sent:${p}:${bi++}`);
+    } else block.push(l);
   }
   flush();
   if (working()) html += `<div class="pmsg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
@@ -3209,6 +3777,130 @@ $('#chatbox').addEventListener('toggle', (e) => {
   W.last = '';
 }, true);
 
+/** Nested <pre> scrolls itself; at top/bottom (or if it can't scroll), the chat page takes over. */
+(function wireNestedScroll() {
+  const parent = $('#chatbox');
+  if (!parent) return;
+  let startY = 0, startX = 0, axis = null, target = null;
+  const preOf = (t) => t?.closest?.('pre');
+  parent.addEventListener('touchstart', (e) => {
+    target = preOf(e.target);
+    if (!target) return;
+    startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX;
+    axis = null;
+  }, { passive: true });
+  parent.addEventListener('touchmove', (e) => {
+    if (!target || !e.touches[0]) return;
+    const y = e.touches[0].clientY, x = e.touches[0].clientX;
+    const dy = startY - y, dx = startX - x;
+    if (axis == null && (Math.abs(dy) > 5 || Math.abs(dx) > 5)) axis = Math.abs(dx) > Math.abs(dy) + 2 ? 'x' : 'y';
+    if (axis !== 'y') return;
+    const canY = target.scrollHeight > target.clientHeight + 1;
+    const atTop = target.scrollTop <= 0;
+    const atBot = target.scrollTop + target.clientHeight >= target.scrollHeight - 1;
+    if (!canY || (atTop && dy < 0) || (atBot && dy > 0)) {
+      parent.scrollTop += dy;
+      startY = y;
+      if (e.cancelable) e.preventDefault();
+    }
+  }, { passive: false });
+  parent.addEventListener('wheel', (e) => {
+    const pre = preOf(e.target);
+    if (!pre) return;
+    const dy = e.deltaY;
+    if (!dy) return;
+    const canY = pre.scrollHeight > pre.clientHeight + 1;
+    const atTop = pre.scrollTop <= 0;
+    const atBot = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 1;
+    if (!canY || (atTop && dy < 0) || (atBot && dy > 0)) {
+      parent.scrollTop += dy;
+      e.preventDefault();
+    }
+  }, { passive: false });
+})();
+
+/** Slight left swipe on a message reveals its timestamp (when the transcript provided one). */
+(function wireMsgTsSwipe() {
+  const box = $('#chatbox');
+  if (!box) return;
+  let g = null;
+  const closeOthers = (except) => {
+    $$('#chatbox .mrow.revealed').forEach((r) => {
+      if (r === except) return;
+      r.classList.remove('revealed', 'dragging');
+      const s = r.querySelector('.mslide');
+      if (s) s.style.transform = '';
+      const id = r.dataset.mid;
+      if (id && W.tsOpen) W.tsOpen.delete(id);
+    });
+  };
+  const setOpen = (row, open) => {
+    const slide = row.querySelector('.mslide');
+    if (!slide) return;
+    row.classList.toggle('revealed', open);
+    slide.style.transform = open ? `translateX(-${MSG_TS_W}px)` : '';
+    const id = row.dataset.mid;
+    if (id && W.tsOpen) {
+      if (open) W.tsOpen.add(id); else W.tsOpen.delete(id);
+    }
+  };
+  box.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('pre, a, button, summary, input, textarea')) return;
+    const row = e.target.closest('.mrow[data-ts]');
+    if (!row) return;
+    const slide = row.querySelector('.mslide');
+    if (!slide) return;
+    const open = row.classList.contains('revealed');
+    g = {
+      row, slide, pid: e.pointerId,
+      x0: e.clientX, y0: e.clientY,
+      base: open ? -MSG_TS_W : 0,
+      dx: 0, axis: null, done: false,
+    };
+    row.classList.add('dragging');
+    try { row.setPointerCapture(e.pointerId); } catch {}
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!g || g.done || (g.pid != null && e.pointerId !== g.pid)) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (g.axis == null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+      g.axis = Math.abs(dx) > Math.abs(dy) + 3 ? 'x' : 'y';
+      if (g.axis === 'y') {
+        g.row.classList.remove('dragging');
+        try { g.row.releasePointerCapture(g.pid); } catch {}
+        g = null;
+        return;
+      }
+      closeOthers(g.row);
+    }
+    if (g.axis !== 'x') return;
+    e.preventDefault();
+    g.dx = dx;
+    const x = Math.max(-MSG_TS_W, Math.min(0, g.base + dx));
+    g.slide.style.transform = `translateX(${x}px)`;
+    g.row.classList.toggle('revealed', x < -8);
+  }, { passive: false });
+  const end = (e) => {
+    if (!g || g.done) return;
+    if (e && g.pid != null && e.pointerId !== g.pid) return;
+    g.done = true;
+    g.row.classList.remove('dragging');
+    if (g.axis === 'x') {
+      const x = Math.max(-MSG_TS_W, Math.min(0, g.base + g.dx));
+      const open = x < -MSG_TS_W * 0.35 || (g.base < 0 && g.dx < 8);
+      setOpen(g.row, open);
+    } else if (g.axis == null && g.row.classList.contains('revealed')) {
+      // Tap without move closes.
+      setOpen(g.row, false);
+    }
+    g = null;
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('lostpointercapture', end);
+})();
+
 // ---------- dock: fold the keys away to give the terminal all the height ----------
 try { $('#dock').classList.toggle('folded', localStorage.getItem('tmuxpocket.dock') === 'folded'); } catch {}
 $('#dock-handle').addEventListener('click', () => {
@@ -3217,35 +3909,88 @@ $('#dock-handle').addEventListener('click', () => {
   if (W.mode === 'term') requestAnimationFrame(() => fitToPhone().then(tick));
 });
 
-// Answer chips when the agent waits (y/n, 1/2/3…). Sit above the shortcuts / composer.
+// Answer chips when the agent waits (y/n, 1/2/3…) — and login URL/code helpers.
 function suggestFromScreen() {
-  if (W.status !== 'waiting' || !W.screen?.screen) return [];
-  const txt = W.screen.screen.replace(ANSI_RE, '');
+  if (!W.screen?.screen) return [];
+  // Use cleaned+healed text so hard-wrapped OAuth URLs are whole before we chip them.
+  const txt = cleanScreen(W.screen.screen, W.screen.width || 80).join('\n');
   const chips = [], seen = new Set();
   const add = (l, payload) => {
-    const key = payload.t ?? payload.cmd ?? l;
+    const key = [
+      payload.open && `open:${payload.open}`,
+      payload.copy && `copy:${payload.copy}`,
+      payload.paste && 'paste',
+      payload.t && `t:${payload.t}`,
+      payload.cmd && `cmd:${payload.cmd}`,
+      payload.k && `k:${payload.k}`,
+      l,
+    ].find(Boolean);
     if (seen.has(key)) return;
     seen.add(key);
     chips.push({ l, ...payload });
   };
-  if (/\b(y\/n|yes\/no)\b|\[[Yy]\/[Nn]\]|Allow|Approve|Do you want|Continue\?/i.test(txt)) {
-    add('Oui', { t: 'y' }); add('Non', { t: 'n' });
+  const auth = authFromText(txt);
+  for (const u of auth.urls) {
+    add('Ouvrir', { open: u, pri: true });
+    add('Lien', { copy: u, sec: true });
   }
-  const opts = [...txt.matchAll(/(?:^|\n)\s*[❯>•]?\s*(\d+)[.)]\s+([^\n]{1,40})/g)].slice(0, 6);
-  for (const m of opts) {
-    const label = m[2].replace(/\s+/g, ' ').trim();
-    if (label) add(`${m[1]} · ${label}`.slice(0, 32), { cmd: m[1] });
+  for (const code of auth.codes) {
+    const short = code.length > 12 ? `${code.slice(0, 9)}…` : code;
+    add(short, { copy: code, pri: true });
   }
-  if (/Press enter|press ⏎|press return/i.test(txt)) add('Entrée', { k: 'Enter' });
+  if (auth.wantsPaste || auth.codes.length) add('Coller', { paste: true, pri: true });
+  if (W.status === 'waiting' || auth.urls.length || auth.codes.length) {
+    if (/\b(y\/n|yes\/no)\b|\[[Yy]\/[Nn]\]|Allow|Approve|Do you want|Continue\?/i.test(txt)) {
+      add('Oui', { t: 'y' }); add('Non', { t: 'n', sec: true });
+    }
+    const opts = [...txt.matchAll(/(?:^|\n)\s*[❯>•]?\s*(\d+)[.)]\s+([^\n]{1,40})/g)].slice(0, 6);
+    for (const m of opts) {
+      const label = m[2].replace(/\s+/g, ' ').trim();
+      if (label) add(`${m[1]} · ${label}`.slice(0, 32), { cmd: m[1], sec: true });
+    }
+    if (/Press enter|press ⏎|press return|when done/i.test(txt)) add('Entrée', { k: 'Enter', sec: true });
+  }
   return chips;
+}
+async function runAuthAction(kind, value) {
+  if (kind === 'open' && value) {
+    window.open(value, '_blank', 'noopener,noreferrer');
+    toast('Login ouvert — reviens ici après', true);
+    return;
+  }
+  if (kind === 'copy' && value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast('Copié', true);
+    } catch { toast('Copie impossible — sélectionne le texte'); }
+    return;
+  }
+  if (kind === 'paste') {
+    try {
+      const t = (await navigator.clipboard.readText()).trim();
+      if (!t) {
+        input.focus();
+        toast('Presse-papiers vide — colle dans le champ');
+        return;
+      }
+      await api(srv, 'send', { target: W.win, text: t, enter: true });
+      toast('Collé dans la session', true);
+      tick();
+    } catch {
+      input.focus();
+      toast('Colle dans le champ puis Envoyer');
+    }
+  }
 }
 function drawSuggest() {
   const el = $('#suggest');
   if (!el) return;
   const chips = suggestFromScreen();
-  if (!chips.length) { el.hidden = true; el.innerHTML = ''; return; }
-  const html = chips.map((c, i) =>
-    `<button type="button" data-si="${i}" class="${i > 1 ? 'sec' : ''}">${esc(c.l)}</button>`).join('');
+  if (!chips.length) { el.hidden = true; el.innerHTML = ''; el.dataset.html = ''; return; }
+  const html = chips.map((c, i) => {
+    const cls = c.pri ? 'pri' : (c.sec || i > 0) ? 'sec' : 'pri';
+    return `<button type="button" data-si="${i}" class="${cls}">${esc(c.l)}</button>`;
+  }).join('');
   if (html === el.dataset.html) { el.hidden = false; return; }
   el.dataset.html = html;
   el.innerHTML = html;
@@ -3255,7 +4000,16 @@ function drawSuggest() {
 $('#suggest').addEventListener('click', (e) => {
   const b = e.target.closest('[data-si]'); if (!b) return;
   const c = $('#suggest')._chips?.[Number(b.dataset.si)];
-  if (c) press(c);
+  if (!c) return;
+  if (c.open) return runAuthAction('open', c.open);
+  if (c.copy) return runAuthAction('copy', c.copy);
+  if (c.paste) return runAuthAction('paste');
+  press(c);
+});
+$('#chatbox').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-auth]'); if (!b) return;
+  e.preventDefault();
+  runAuthAction(b.dataset.auth, b.dataset.v || '');
 });
 
 // ---------- input ----------
@@ -3283,7 +4037,7 @@ $('#composer').addEventListener('submit', async (e) => {
     if (W.mode === 'chat') {
       if (/^\/new\b/i.test(text.trim())) resetPiChat();
       W.pending = text;
-      W.sent = [...W.sent, text].slice(-50);
+      W.sent = [...W.sent, { t: text, ts: Date.now() }].slice(-50);
       try { localStorage.setItem(`tmuxpocket.sent.${winKey()}`, JSON.stringify(W.sent)); } catch {}
       W.last = ''; drawChat();
       $('#chatbox').scrollTop = $('#chatbox').scrollHeight;

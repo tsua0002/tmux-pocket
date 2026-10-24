@@ -101,7 +101,8 @@ function locateGemini(tm, t) {
     'root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true); [ -n "$root" ] || root=$cwd',
     'home="${GEMINI_DIR:-$HOME/.gemini}"',
     // Prefer project tmp folders; hash matching is best-effort via listing all recent chats.
-    'find "$home/tmp" "$HOME/.cache/.gemini/tmp" -type f -path \'*/chats/session-*.jsonl\' -mtime -30 2>/dev/null | head -40 | while IFS= read -r f; do',
+    // Filenames are usually session-<timestamp>-<id>.jsonl; also accept any *.jsonl under chats/.
+    'find "$home/tmp" "$HOME/.cache/.gemini/tmp" -type f \\( -path \'*/chats/session-*.jsonl\' -o -path \'*/chats/*.jsonl\' \\) -mtime -30 2>/dev/null | head -60 | while IFS= read -r f; do',
     '  echo "f $(stat -c \'%Y %s\' "$f") $f"',
     'done',
     'true',
@@ -129,11 +130,38 @@ function locateOpencode(tm, t) {
   ].join('\n');
 }
 
+/** Cursor Agent CLI (`agent` / `cursor-agent`): Anthropic-style JSONL under ~/.cursor/projects/<id>/agent-transcripts/. */
+function locateCursor(tm, t) {
+  return [
+    `pp=$(${tm} display -p -t ${t} '#{pane_pid}') || exit 1`,
+    `cwd=$(${tm} display -p -t ${t} '#{pane_current_path}')`,
+    'pid=$(pgrep -P "$pp" -x agent | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" -x cursor-agent | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" agent | head -1); [ -n "$pid" ] || pid=$pp',
+    'echo "now $(date +%s) age $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d \' \')"',
+    'root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true); [ -n "$root" ] || root=$cwd',
+    'home="${CURSOR_HOME:-$HOME/.cursor}"',
+    // Project folder name is the cwd with separators → dashes (lossy, matches Cursor CLI).
+    'enc() { printf %s "$1" | sed \'s#//*#/#g; s#/$##; s#[/]#-#g\'; }',
+    'for base in "$root" "$cwd"; do',
+    '  e=$(enc "$base"); dir="$home/projects/$e/agent-transcripts"',
+    '  [ -d "$dir" ] || continue',
+    '  find "$dir" -type f -name \'*.jsonl\' ! -path \'*/subagents/*\' -mtime -30 2>/dev/null | head -40 | while IFS= read -r f; do',
+    '    echo "f $(stat -c \'%Y %s\' "$f") $f"',
+    '  done',
+    'done',
+    // Fallback: any recent transcript (mtime pick) when cwd encoding mismatches.
+    'find "$home/projects" -type f -path \'*/agent-transcripts/*/*.jsonl\' ! -path \'*/subagents/*\' -mtime -7 2>/dev/null | head -40 | while IFS= read -r f; do',
+    '  echo "f $(stat -c \'%Y %s\' "$f") $f"',
+    'done',
+    'true',
+  ].join('\n');
+}
+
 const LOCATE = {
   claude: locateClaude,
   codex: locateCodex,
   gemini: locateGemini,
   opencode: locateOpencode,
+  cursor: locateCursor,
 };
 
 // ---------- ingest ----------
@@ -148,6 +176,8 @@ function ingestClaude(cache, line) {
   if (!line.trim()) return;
   let e;
   try { e = JSON.parse(line); } catch { return; }
+  // Cursor Agent CLI JSONL uses top-level `role` (same Anthropic message shape).
+  if (!e.type && (e.role === 'user' || e.role === 'assistant')) e = { ...e, type: e.role, uuid: e.uuid || e.id };
   if (e.type === 'custom-title' && e.customTitle) cache.name = e.customTitle;
   if (e.type === 'ai-title' && e.aiTitle && !cache.name) cache.name = e.aiTitle;
   if (e.type === 'agent-name' && e.agentName && !cache.name) cache.name = e.agentName;
@@ -366,6 +396,7 @@ const INGEST = {
   claude: ingestClaude,
   codex: ingestCodex,
   gemini: ingestGemini,
+  cursor: ingestClaude,
 };
 
 async function readJsonlChat({ kind, c, t, run, q, connKey, tmuxPath, target, caches }) {
@@ -512,6 +543,7 @@ const AUTH = {
   opencode: { login: 'opencode auth login', status: 'opencode auth list', hint: 'Connexion OpenCode (fournisseur)' },
   codeaf: { login: 'codeaf', status: null, hint: 'CodeAF demande le modèle / la clé au premier lancement' },
   pi: { login: 'pi', status: null, hint: 'pi configure le modèle au premier lancement (/model)' },
+  cursor: { login: 'agent login', status: 'agent status', hint: 'Connexion Cursor (CLI agent)' },
   aider: { login: null, status: null, hint: 'Aider utilise OPENAI_API_KEY / ANTHROPIC_API_KEY dans l’environnement' },
 };
 
