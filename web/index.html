@@ -3285,17 +3285,26 @@ async function tick() {
     } else if (W.profile.chat && W.piState !== 'missing') {
       // Native chat (pi / codeaf / claude / codex / gemini / opencode): session file every other tick.
       if (!W.pi || W.n % 2 === 0) {
-        const p = await api(srv, W.profile.chat, { target: W.win });
-        if (p.found) {
-          if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
-          W.piState = 'ok';
-          W.pi = p;
-          setSub();
-        } else {
-          // Never keep a previous thread when the pane has no session file (e.g. after /new).
+        try {
+          const p = await api(srv, W.profile.chat, { target: W.win });
+          if (p.found) {
+            if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
+            W.piState = 'ok';
+            W.pi = p;
+            setSub();
+          } else {
+            // Never keep a previous thread when the pane has no session file (e.g. after /new).
+            if (W.pi) W.last = '';
+            W.piState = 'missing';
+            W.pi = null;
+          }
+        } catch (chatErr) {
+          // Broken / incompatible session file must not leave Chat blank ("Chargement…").
+          // Fall through to the cleaned tmux screen until the next successful read.
           if (W.pi) W.last = '';
           W.piState = 'missing';
           W.pi = null;
+          toast(chatErr.message);
         }
       }
       W.screen = await api(srv, 'capture', { target: W.win });
@@ -3308,6 +3317,14 @@ async function tick() {
     }
   } catch (e) {
     toast(e.message);
+    // Last resort: if Chat never painted (API failed before drawChat), show screen fallback.
+    if (W.mode === 'chat' && W.profile?.chat && !W.last) {
+      try {
+        if (!W.screen) W.screen = await api(srv, 'capture', { target: W.win });
+        W.piState = 'missing';
+        drawChat();
+      } catch { /* leave toast */ }
+    }
     if (/can't find|no such|not found/i.test(e.message)) { clearTimeout(W.timer); back(); }
   } finally {
     W.busy = false;
@@ -3731,7 +3748,7 @@ const toolLine = (t) => {
 };
 
 function renderPi() {
-  const msgs = W.pi.messages;
+  const msgs = Array.isArray(W.pi?.messages) ? W.pi.messages : [];
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
   if (W.pending && lastUser) {
@@ -3739,16 +3756,20 @@ function renderPi() {
     if (got === W.pending.trim() || lastUser.text.trim() === W.pending.trim()) W.pending = null;
   }
   const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', cursor: 'Cursor', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
-  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
-  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
+  let html = (W.pi?.total || 0) > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
+  let painted = 0;
   for (const m of msgs) {
     if (m.role === 'user') {
       const shown = displayUserText(m.text);
       if (!shown) continue;
       html += wrapTs(`<div class="msg user">${esc(shown)}</div>`, userMsgTs(m), m.id);
-    } else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
-    else if (m.role === 'bash') html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
-    else if (m.role === 'assistant') {
+      painted++;
+    } else if (m.role === 'note') {
+      if (m.text) { html += `<div class="pnote">${esc(m.text)}</div>`; painted++; }
+    } else if (m.role === 'bash') {
+      html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
+      painted++;
+    } else if (m.role === 'assistant') {
       let body = '';
       if (m.thinking) body += fold(`${m.id}:t`, 'think', '▸ réflexion', `<pre>${esc(m.thinking)}</pre>`);
       if (m.text) body += `<div class="text">${md(m.text)}</div>`;
@@ -3758,17 +3779,26 @@ function renderPi() {
       }
       if (m.error) body += `<div class="err-line">Erreur : ${esc(m.error)}</div>`;
       if (m.aborted) body += `<div class="err-line">Interrompu</div>`;
-      if (body) html += wrapTs(`<div class="pmsg assistant">${body}</div>`, m.ts, m.id);
+      if (body) { html += wrapTs(`<div class="pmsg assistant">${body}</div>`, m.ts, m.id); painted++; }
     }
   }
-  if (W.pending) html += `<div class="msg user pending">${esc(W.pending)}</div>`;
-  if (live) {
+  if (W.pending) { html += `<div class="msg user pending">${esc(W.pending)}</div>`; painted++; }
+  if (live && W.screen?.screen) {
     // While pi streams, the reply isn't in the session file yet: show what the screen has after the last prompt.
     const lines = cleanScreen(W.screen.screen, W.screen.width);
     const anchor = W.pending || displayUserText(lastUser?.text || '');
     let i = anchor ? lines.map(stripPrompt).lastIndexOf(anchor.trim().split('\n').pop().trim()) : -1;
     const partial = i >= 0 ? lines.slice(i + 1).join('\n').trim() : '';
     html += `<div class="pmsg assistant">${partial ? `<div class="text">${md(partial)}</div>` : ''}<span class="typing"><i></i><i></i><i></i></span></div>`;
+    painted++;
+  }
+  // Session file present but nothing visible (format drift / skipped roles): never leave Chat blank.
+  if (!painted) {
+    if (W.screen?.screen) {
+      html = `<div class="pnote">Transcript ${esc(who)} partiel — vue écran nettoyée</div>` + renderGeneric();
+    } else {
+      html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
+    }
   }
   return html;
 }

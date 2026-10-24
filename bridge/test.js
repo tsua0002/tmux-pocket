@@ -8,6 +8,7 @@ process.env.STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-state-'));
 const {
   ops, q, getBridgeKey, verifyHost, server, generateKey, keyOk,
   pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
+  piIngest, piConversation,
   agentChat, persist,
 } = require('./server');
 
@@ -157,6 +158,69 @@ test('pickPiSession prefers the newest created file after /new', () => {
   const picked = pickPiSession(out);
   assert.ok(picked, 'should pick a session');
   assert.match(picked.path, /_new\.jsonl$/);
+});
+
+test('pickPiSession dedupes find+ls listings and prefers cwd folder on fallback', () => {
+  const now = 1_700_000_000;
+  const out = [
+    `now ${now} age 99999`, // process age unknown → no "own" pool
+    'cwd /home/u/HermesDeck',
+    `f ${now - 10} 100 /home/u/.pi/agent/sessions/--other--/2023-11-14T10-00-00-000Z_other.jsonl`,
+    `f ${now - 8} 200 /home/u/.pi/agent/sessions/--home-u-HermesDeck--/2023-11-14T10-01-00-000Z_here.jsonl`,
+    // Duplicate line from find fallback — must not confuse sort.
+    `f ${now - 8} 200 /home/u/.pi/agent/sessions/--home-u-HermesDeck--/2023-11-14T10-01-00-000Z_here.jsonl`,
+  ].join('\n');
+  const picked = pickPiSession(out);
+  assert.match(picked.path, /_here\.jsonl$/);
+});
+
+test('piIngest tolerates string assistant content and missing tools', () => {
+  const cache = { offset: 0, entries: new Map(), order: [], header: null };
+  const lines = [
+    JSON.stringify({ type: 'session', id: 's1', cwd: '/tmp', timestamp: 't0' }),
+    JSON.stringify({
+      type: 'message', id: 'u1', parentId: null, timestamp: 't1',
+      message: { role: 'user', content: 'bonjour' },
+    }),
+    // Prod bug: content as a plain string used to throw on .filter and blank the Chat UI.
+    JSON.stringify({
+      type: 'message', id: 'a1', parentId: 'u1', timestamp: 't2',
+      message: { role: 'assistant', content: 'contenu en une string', model: 'test' },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'a2', parentId: 'a1', timestamp: 't3',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'avec outil' },
+          { type: 'toolCall', id: 'tc1', name: 'bash', arguments: { command: 'uname' } },
+        ],
+        model: 'test',
+      },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'tr1', parentId: 'a2', timestamp: 't4',
+      message: { role: 'toolResult', toolCallId: 'tc1', content: 'Linux', isError: false },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'c1', parentId: 'tr1', timestamp: 't5',
+      message: { role: 'custom', content: 'hook note' },
+    }),
+  ];
+  for (const line of lines) assert.doesNotThrow(() => piIngest(cache, line));
+  const conv = piConversation(cache);
+  assert.ok(conv.messages.length >= 3);
+  assert.strictEqual(conv.messages[0].role, 'user');
+  assert.strictEqual(conv.messages[0].text, 'bonjour');
+  const strAssistant = conv.messages.find((m) => m.text === 'contenu en une string');
+  assert.ok(strAssistant, 'string content becomes text');
+  assert.deepStrictEqual(strAssistant.tools, []);
+  const withTool = conv.messages.find((m) => m.text === 'avec outil');
+  assert.ok(withTool);
+  assert.strictEqual(withTool.tools[0].name, 'bash');
+  assert.strictEqual(withTool.tools[0].done, true);
+  assert.strictEqual(withTool.tools[0].output, 'Linux');
+  assert.ok(conv.messages.some((m) => m.role === 'note' && m.text === 'hook note'));
 });
 
 test('encodeCodeafWorkspace matches codeaf encodeWorkspace', () => {
