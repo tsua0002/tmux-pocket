@@ -409,10 +409,23 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .mrow { position: relative; margin: 0 0 12px; touch-action: pan-y; overflow: hidden; }
 .mrow .mslide { transition: transform .18s cubic-bezier(.2,.8,.2,1); will-change: transform; }
 .mrow.dragging .mslide { transition: none; }
-.mrow .mts { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
-  font: 550 11px/1.2 var(--mono); color: var(--muted); opacity: 0; pointer-events: none; white-space: nowrap;
-  transition: opacity .15s ease; letter-spacing: .01em; }
+.mrow .mts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font: 650 12px/1.2 var(--mono); color: var(--text); opacity: 0; pointer-events: none; white-space: nowrap;
+  transition: opacity .15s ease; letter-spacing: .02em;
+  text-shadow: 0 0 10px var(--bg), 0 0 3px var(--bg); }
 .mrow.revealed .mts, .mrow.dragging .mts { opacity: 1; }
+/* User bubbles sit on the right — show the time under the bubble so the text isn’t clipped. */
+.mrow:has(.msg.user) { overflow: visible; }
+.mrow:has(.msg.user) .mslide { transition: none; }
+.mrow:has(.msg.user).revealed .mslide,
+.mrow:has(.msg.user).dragging .mslide { transform: none !important; }
+.mrow:has(.msg.user) .mts {
+  position: static; display: block; transform: none; text-align: right;
+  margin: 5px 4px 0; max-height: 0; overflow: hidden; opacity: 0;
+  color: var(--text-2); text-shadow: none;
+  transition: opacity .15s ease, max-height .15s ease; }
+.mrow:has(.msg.user).revealed .mts,
+.mrow:has(.msg.user).dragging .mts { opacity: 1; max-height: 1.5em; }
 
 /* dock: suggestions + shortcuts stay visible; keybar folds away. Chat hides the keybar entirely. */
 .dock { flex: none; margin-top: auto; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); z-index: 5; }
@@ -432,7 +445,8 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .suggest button:active { background: var(--surface-3); }
 .suggest button.pri { border-color: var(--line-2); background: var(--surface-3); font-weight: 650; }
 .suggest button.sec { color: var(--text-2); }
-.msg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; word-break: break-all; }
+.msg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px;
+  word-break: break-all; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; }
 .msg-link:active { color: var(--accent); text-decoration-color: var(--accent); }
 /* Device codes: tap-to-copy, looks like mono text — not a promo chip. */
 button.auth-code { display: inline; margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none;
@@ -1014,7 +1028,10 @@ const Sim = (() => {
     { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), chat natif Claude/Codex/Gemini/OpenCode, et login CLI depuis l’app.' },
   ] });
   mk('main', 'cursor', 'agent', { style: 'pi', cmd: 'agent', items: [
-    { role: 'user', text: 'Ouvre une session Cursor Agent' },
+    // Mimic cloud-agent JSONL wrappers — chat must peel these for display.
+    { role: 'user', text: '<timestamp>Saturday, Oct 24, 2026, 12:03 AM (UTC)</timestamp><user_query>Hello ?</user_query>' },
+    { role: 'agent', text: "I'm **Auto**, an agent router designed by Cursor." },
+    { role: 'user', text: '<timestamp>Saturday, Oct 24, 2026, 12:04 AM (UTC)</timestamp><user_query>What\'s your model?</user_query>' },
     { role: 'agent', text: 'CLI `agent` prêt. Login via `agent login` ; le chat lit `~/.cursor/projects/…/agent-transcripts/*.jsonl`.' },
   ] });
   mk('main', 'codex', 'agent', { style: 'pi', cmd: 'codex', items: [
@@ -1028,9 +1045,10 @@ const Sim = (() => {
     { role: 'agent', text: 'pi, CodeAF, Claude Code, Codex, Gemini CLI et OpenCode partagent le même contrat messages (texte, réflexion, outils).' },
   ] });
   mk('main', 'opencode', 'agent', { style: 'pi', cmd: 'opencode', items: [
-    { role: 'user', text: 'Ouvre une session OpenCode' },
-    { role: 'agent', text: 'Session prête. Le chat lit storage_v2 / SQLite côté bridge.',
-      tools: [{ name: 'read', args: '{"path":"bridge/agent-chat.js"}', output: 'module.exports = { readChat, AUTH, KINDS }', done: true }] },
+    { role: 'user', text: 'Hello' },
+    { role: 'agent', text: 'Hello! How can I help you today?',
+      thinking: 'Greet, then offer models/tools.',
+      tools: [{ name: 'models', args: '{"list":true}', output: 'Big Pickle · opencode/big-pickle', done: true }] },
   ] });
   mk('main', 'htop', 'htop');
   mk('infra', 'api-logs', 'logs');
@@ -1067,7 +1085,8 @@ const Sim = (() => {
     }
     for (const it of w.items) {
       if (it.role === 'user') {
-        out.push(...wrap(it.text, cols - 2, claude ? `${D}> ` : `${bg(236)}${fg(252)} `, claude ? `${D}  ` : `${bg(236)}${fg(252)} `).map((l) => pad(l, cols) + R), '');
+        const shown = displayUserText(it.text) || it.text;
+        out.push(...wrap(shown, cols - 2, claude ? `${D}> ` : `${bg(236)}${fg(252)} `, claude ? `${D}  ` : `${bg(236)}${fg(252)} `).map((l) => pad(l, cols) + R), '');
       } else if (it.role === 'tool') {
         out.push(...wrap(it.text, cols - 2, claude ? `${fg(70)}●${R} ${B}` : `${fg(244)}› ${fg(110)}`, '  ').map((l) => l + R));
         if (it.sub) out.push(`  ${D}⎿  ${it.sub}${R}`);
@@ -1347,7 +1366,11 @@ const Sim = (() => {
       const t0 = Date.now() - items.length * 180000;
       const messages = items.map((it, i) => {
         const ts = new Date(t0 + i * 180000).toISOString();
-        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text, ts };
+        if (it.role === 'user') {
+          const peeled = displayUserText(it.text);
+          const embedded = userMsgTs({ text: it.text, ts: null });
+          return { id: `m${i}`, role: 'user', text: peeled || it.text, ts: embedded || ts };
+        }
         if (it.role === 'tool') {
           return { id: `m${i}`, role: 'assistant', text: '', ts, tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
             args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] };
@@ -1803,13 +1826,51 @@ function statusOf(lines) {
   const txt = lines.join('\n');
   return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
 }
-const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve)/i;
+const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve|Open |Go to|Navigate|Ctrl\+click|Continue in)/i;
+/** CSI + OSC (BEL or ST=`ESC \\`). Pi/Ink hyperlinks use OSC 8 with ST — the old BEL-only regex left `\\` junk and duplicated URLs. */
+const STRIP_ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+const OSC8_RE = /\x1b\]8;[^\x07\x1b]*;([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
+function stripAnsi(s) {
+  return String(s ?? '').replace(STRIP_ANSI_RE, '');
+}
+/** URLs embedded in OSC 8 hyperlinks (often the only complete copy when the TUI hard-wraps the visible text). */
+function urlsFromOsc8(raw) {
+  const out = [];
+  for (const m of String(raw ?? '').matchAll(OSC8_RE)) {
+    const u = (m[1] || '').trim();
+    if (/^https?:\/\//i.test(u)) out.push(u);
+  }
+  return out;
+}
+/** Strip TUI box/padding junk so hard-wrapped OAuth lines can be rejoined. */
+function stripUrlLineNoise(s) {
+  return stripAnsi(s)
+    .replace(/^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g, '')
+    .replace(/[\u2500-\u257F]+/g, ' ')
+    // ST (`ESC \\`) often survives as a lone `\\` between a full OSC URL and the next wrap.
+    .replace(/\\(?=https?:\/\/)/gi, ' ')
+    .replace(/\\+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 /** Strip prose accidentally glued onto an OAuth URL (e.g. …comEntertheauthorizationcode). */
 function sanitizeAuthUrl(u) {
-  return String(u || '')
-    .replace(/\s+/g, '')
-    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*)$/i, '')
-    .replace(/[.,;:!?)]+$/g, '');
+  let s = String(u || '').replace(/\s+/g, '').replace(/[│┃║]/g, '');
+  // If two URLs were glued with a lost ST, keep only the first complete one.
+  const glued = s.search(/(?!^)https?:\/\//i);
+  if (glued > 20) s = s.slice(0, glued);
+  return s
+    .replace(/\\+$/g, '')
+    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*|Opentheurl.*|Ctrl\+click.*|Continueinyourbrowser.*)$/i, '')
+    .replace(/[.,;:!?）】»"'`]+$/g, '');
+}
+/** True if a compact string looks like a URL / query continuation. */
+function looksLikeUrlChunk(s) {
+  if (!s) return false;
+  if (/^https?:\/\//i.test(s)) return true;
+  if (/^[?&#/=%~._\-]./.test(s)) return true;
+  // Continuation of path/query after a hard wrap (no leading ?&)
+  return /^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(s) && /[=&#%/]/.test(s);
 }
 /** Terminal hard-wrap splits OAuth URLs across lines (and cleanScreen used to insert spaces).
  *  Reassemble from `https://` through query continuations into one usable URL. */
@@ -1817,25 +1878,29 @@ function healWrappedUrls(text) {
   const lines = String(text ?? '').split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = stripUrlLineNoise(lines[i]);
     const start = line.search(/https?:\/\//i);
-    if (start < 0) { out.push(line); continue; }
+    if (start < 0) { out.push(lines[i]); continue; }
     const before = line.slice(0, start);
     let raw = line.slice(start);
     let j = i + 1;
     while (j < lines.length) {
-      const n = lines[j].replace(/\s+$/, '').trim();
+      const n = stripUrlLineNoise(lines[j]);
       if (!n || AUTH_URL_STOP.test(n) || MARK.test(n)) break;
       const compact = n.replace(/\s+/g, '');
+      // A new absolute URL means the previous one ended (OSC 8 wrap / ST glue).
+      if (/^https?:\/\//i.test(compact) && /https?:\/\//i.test(raw)) break;
       // Prose line (several words, no query junk) — URL ended.
       if (/\s/.test(n) && !/[=&#%]/.test(n) && n.split(/\s+/).length >= 3) break;
-      if (!/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
+      if (!looksLikeUrlChunk(compact) && !/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
+      // Drop a soft-hyphen inserted by some TUI wraps (auth?redirec- + t_uri).
+      if (/[A-Za-z0-9]-$/.test(raw) && /^[a-z0-9]/.test(compact)) raw = raw.replace(/-$/, '');
       raw += compact;
       j++;
     }
     out.push(before + sanitizeAuthUrl(raw));
     // Keep the stop line (e.g. "Enter the authorization code:") as its own row.
-    if (j < lines.length && AUTH_URL_STOP.test(lines[j].trim())) {
+    if (j < lines.length && AUTH_URL_STOP.test(stripUrlLineNoise(lines[j]))) {
       out.push(lines[j]);
       j++;
     }
@@ -1843,15 +1908,45 @@ function healWrappedUrls(text) {
   }
   return out.join('\n');
 }
+/** Keep the longest complete URL; drop truncated OSC-8 wrap fragments that are prefixes of it. */
+function pickAuthUrls(candidates) {
+  const scored = [...new Set(candidates.map(sanitizeAuthUrl))]
+    .filter((u) => u.length > 20 && /^https?:\/\//i.test(u))
+    .map((u) => {
+      let score = u.length;
+      if (/[?&](state|code_challenge|redirect_uri|client_id)=/i.test(u)) score += 1000;
+      if (/oauth|authorize|device|login|auth/i.test(u)) score += 100;
+      return { u, score };
+    })
+    .sort((a, b) => b.score - a.score || b.u.length - a.u.length);
+  const out = [];
+  for (const { u } of scored) {
+    // Skip shorter fragments of a URL we already kept (OSC 8 per-line wraps).
+    if (out.some((k) => k === u || k.startsWith(u))) continue;
+    out.push(u);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
 /** Pull login URLs + one-time codes out of a TUI screen — keep it dumb and useful. */
 function authFromText(txt) {
   if (!txt) return { urls: [], codes: [], wantsPaste: false };
-  const healed = healWrappedUrls(String(txt).replace(ANSI_RE, ''));
-  const urls = [...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|]+/gi)]
-    .map((m) => sanitizeAuthUrl(m[0]))
-    .filter((u) => u.length > 20 && /https?:\/\//i.test(u))
-    .filter((u, i, a) => a.indexOf(u) === i)
-    .slice(0, 3);
+  const raw = String(txt);
+  // 1) OSC 8 payloads (complete URL even when the visible wrap is per-line truncated).
+  // 2) Visible text after proper ST-aware ANSI strip + hard-wrap heal.
+  const stripped = stripAnsi(raw);
+  const healed = healWrappedUrls(stripped);
+  // Split accidental `https://…\https://…` glues left when ESC was lost from ST.
+  const glued = [];
+  for (const chunk of stripped.split(/\\(?=https?:\/\/)/i)) {
+    const m = chunk.match(/https?:\/\/[^\s<>"'`)\]|\\]+/i);
+    if (m) glued.push(m[0]);
+  }
+  const urls = pickAuthUrls([
+    ...urlsFromOsc8(raw),
+    ...[...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|\\]+/gi)].map((m) => m[0]),
+    ...glued,
+  ]);
   const codes = [];
   for (const m of healed.matchAll(/\b([A-Z0-9]{3,8}-[A-Z0-9]{3,8})\b/g)) codes.push(m[1]);
   for (const m of healed.matchAll(/(?:enter code|code|token|api[_ ]?key)\s*[:=]\s*([A-Za-z0-9._-]{4,})/gi)) {
@@ -1861,17 +1956,26 @@ function authFromText(txt) {
   const wantsPaste = /paste|colle|enter (your )?(api[_ ]?key|token|code|secret)|one-time|verification code|Paste API token|authorization\s*code/i.test(healed);
   return { urls, codes: codes.slice(0, 3), wantsPaste };
 }
-/** URLs open; device codes tap-to-copy — no extra chrome. */
+/** Host label for chips — never truncate the real URL itself. */
+function authUrlHost(u) {
+  try { return new URL(u).host.replace(/^www\./, ''); } catch { return 'login'; }
+}
+/** URLs open; device codes tap-to-copy — full href always (truncated labels were copied broken on iOS). */
 function formatScreenText(raw) {
-  const text = healWrappedUrls(raw);
-  const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
+  const auth = authFromText(raw);
+  const text = healWrappedUrls(stripAnsi(raw))
+    // Collapse glued OSC-8 duplicates in the visible transcript.
+    .replace(/(https?:\/\/[^\s\\]+)(?:\\+\1|\\+https?:\/\/\S*)+/gi, '$1');
+  const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|\\]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
   return parts.map((p, i) => {
     if (i % 2 === 0) return esc(p);
     if (/^https?:\/\//i.test(p)) {
-      const href = sanitizeAuthUrl(p);
-      // Long OAuth URLs: keep full href, show a readable head…tail label.
-      const label = href.length > 64 ? `${href.slice(0, 42)}…${href.slice(-14)}` : href;
-      return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+      let href = sanitizeAuthUrl(p);
+      // Prefer the complete OSC-8 / healed login URL when the visible chunk is a wrap fragment.
+      const best = auth.urls.find((u) => u.startsWith(href) || href.startsWith(u.slice(0, 48))) || auth.urls[0];
+      if (best && best.length >= href.length) href = best;
+      return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>`
+        + ` <button type="button" class="auth-code" data-auth="copy" data-v="${esc(href)}" aria-label="Copier le lien">Copier</button>`;
     }
     return `<button type="button" class="auth-code" data-auth="copy" data-v="${esc(p)}" aria-label="Copier ${esc(p)}">${esc(p)}</button>`;
   }).join('');
@@ -2005,7 +2109,9 @@ function previewOf(w, n) {
   const raw = lastPreviews[`${w.session}:${w.window}`] || [];
   const want = n ?? TILE_LINES[tileMeta(w).size] ?? 3;
   const lines = want > 0 && raw.length
-    ? cleanScreen(raw.join('\n'), w.width || 80).filter((l) => l.trim()).slice(-want)
+    ? cleanScreen(raw.join('\n'), w.width || 80)
+      .map((l) => displayUserText(l) || l.replace(/<\/?(?:timestamp|user_query)(?:\s[^>]*)?>/gi, '').trim())
+      .filter((l) => l.trim()).slice(-want)
     : [];
   return { status: statusOf(raw), lines };
 }
@@ -2898,7 +3004,8 @@ const PROFILES = [
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'modèle', h: '/model', cmd: '/model', term: true }, { l: 'compact', h: '/compact', cmd: '/compact' },
     { l: 'cost', h: '/cost', cmd: '/cost' }, { l: '/', h: 'commande', t: '/' }] },
-  { id: 'cursor', match: /^(agent|cursor-agent)$/i, chat: 'cursor', stop: 'Escape', ctx: [
+  // preferTerm: Cursor's native transcript is noisy (XML wrappers); TUI is the better default.
+  { id: 'cursor', match: /^(agent|cursor-agent)$/i, chat: 'cursor', preferTerm: true, stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'plan', h: '/plan', cmd: '/plan', term: true }, { l: 'ask', h: '/ask', cmd: '/ask', term: true },
@@ -3056,8 +3163,12 @@ function loadWindow(win) {
   W.profile = profileOf(win);
   try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
   // Native chat agents (pi, codeaf) open in Chat — their TUI chrome is dense on a phone.
-  // Everything else starts in Terminal; WeeChat always stays there for the buffer bar.
-  W.mode = state.modes[winKey()] || (W.profile.chat ? 'chat' : 'term');
+  // preferTerm agents (Cursor) stay on TUI until the user explicitly picks Chat.
+  // WeeChat always stays in Terminal for the buffer bar.
+  const savedMode = state.modes[winKey()];
+  const userPicked = !!state.modeUser?.[winKey()];
+  if (savedMode && (userPicked || !W.profile.preferTerm)) W.mode = savedMode;
+  else W.mode = W.profile.preferTerm ? 'term' : (W.profile.chat ? 'chat' : 'term');
   if (W.profile.buffers) W.mode = 'term';
   $('#mode-seg').style.display = W.profile.buffers || W.profile.id === 'shell' ? 'none' : '';
   W.status = 'idle'; setStatus('idle');
@@ -3182,8 +3293,10 @@ function leaveWindow() {
   if (W.fitted) api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {});
   W.fitted = false;
 }
-function setMode(m) {
-  W.mode = m; state.modes[winKey()] = m; save();
+function setMode(m, { user = false } = {}) {
+  W.mode = m; state.modes[winKey()] = m;
+  if (user) state.modeUser = { ...state.modeUser, [winKey()]: true };
+  save();
   $('#v-window').dataset.mode = m;
   kbApply(m === 'term' && kbWanted());
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
@@ -3211,7 +3324,7 @@ function setMode(m) {
   // The terminal's size is only known once it is shown.
   else if (nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
 }
-$$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+$$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode, { user: true })));
 
 // Resize the tmux window so TUIs re-layout for a phone screen.
 const LINE_H = 1.25, FONT = 12;
@@ -3251,32 +3364,53 @@ async function tick() {
       W.screen = { ...c, screen: c.screen.join('\n') };
       drawTerm(c);
       if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
+      // Login URLs often appear in TUI first — keep Ouvrir/Copier chips in sync every tick.
+      drawSuggest();
     } else if (W.profile.chat && W.piState !== 'missing') {
       // Native chat (pi / codeaf / claude / codex / gemini / opencode): session file every other tick.
       if (!W.pi || W.n % 2 === 0) {
-        const p = await api(srv, W.profile.chat, { target: W.win });
-        if (p.found) {
-          if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
-          W.piState = 'ok';
-          W.pi = p;
-          setSub();
-        } else {
-          // Never keep a previous thread when the pane has no session file (e.g. after /new).
+        try {
+          const p = await api(srv, W.profile.chat, { target: W.win });
+          if (p.found) {
+            if (W.pi?.file && p.file && W.pi.file !== p.file) W.last = '';
+            W.piState = 'ok';
+            W.pi = p;
+            setSub();
+          } else {
+            // Never keep a previous thread when the pane has no session file (e.g. after /new).
+            if (W.pi) W.last = '';
+            W.piState = 'missing';
+            W.pi = null;
+          }
+        } catch (chatErr) {
+          // Broken / incompatible session file must not leave Chat blank ("Chargement…").
+          // Fall through to the cleaned tmux screen until the next successful read.
           if (W.pi) W.last = '';
           W.piState = 'missing';
           W.pi = null;
+          toast(chatErr.message);
         }
       }
       W.screen = await api(srv, 'capture', { target: W.win });
       if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
+      drawSuggest();
     } else {
       W.screen = await api(srv, 'capture', { target: W.win, history: 400 });
       if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
+      drawSuggest();
     }
   } catch (e) {
     toast(e.message);
+    // Last resort: if Chat never painted (API failed before drawChat), show screen fallback.
+    if (W.mode === 'chat' && W.profile?.chat && !W.last) {
+      try {
+        if (!W.screen) W.screen = await api(srv, 'capture', { target: W.win });
+        W.piState = 'missing';
+        drawChat();
+      } catch { /* leave toast */ }
+    }
     if (/can't find|no such|not found/i.test(e.message)) { clearTimeout(W.timer); back(); }
   } finally {
     W.busy = false;
@@ -3570,7 +3704,8 @@ function parseBuffers(screen) {
 }
 
 // ---------- chat ----------
-const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
+// Keep in sync with STRIP_ANSI_RE (OSC must accept ST=`ESC \\`, not only BEL).
+const ANSI_RE = STRIP_ANSI_RE;
 const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g;
 const BLOCK_CH = /[█▉▊▋▌▍▎▏▐▀▄▆▇▅▃▂▁■▪▫▮▬▓▒░]/;
 /** Box rules (─) and Gemini-style solid block bars (█▆…). */
@@ -3580,8 +3715,8 @@ const isBlockRule = (l) => {
   return t.length >= 6 && [...t].every((c) => BLOCK_CH.test(c));
 };
 const isRuleLine = (l) => RULE.test(l) || isBlockRule(l);
-/** Gemini / Cursor / Ink chrome that must not leak into the chat fallback. */
-const TUI_CHROME = /^(?:Shift\+Tab to accept|Type your message or @|Tips for getting started|Gemini CLI v[\d.]+|workspace\s*\([^)]*\)|\/model\b|no sandbox\b|sandbox\s*$|Auto\s*$|~\s*$|\?\s*$|⚠?\s*Workspace Trust Required|Cursor Agent can execute|Do you trust the contents|\[a\]\s*Trust this workspace|\[q\]\s*Quit|⌛?\s*Trusting workspace|Cursor Agent(?:\s+v[\w.-]+)?\s*$|v?\d{4}\.\d{2}\.\d{2}-[\w]+\s*$|Tip:\s*Hit shift\+tab|\/home\/\S+\s*$)/i;
+/** Gemini / Cursor / OpenCode / Ink chrome that must not leak into the chat fallback. */
+const TUI_CHROME = /^(?:Shift\+Tab to accept|Type your message or @|Tips for getting started|Gemini CLI v[\d.]+|workspace\s*\([^)]*\)|\/model\b|no sandbox\b|sandbox\s*$|Auto\s*$|~\s*$|\?\s*$|⚠?\s*Workspace Trust Required|Cursor Agent can execute|Do you trust the contents|\[a\]\s*Trust this workspace|\[q\]\s*Quit|⌛?\s*Trusting workspace|Cursor Agent(?:\s+v[\w.-]+)?\s*$|v?\d{4}\.\d{2}\.\d{2}-[\w]+\s*$|Tip:\s*Hit shift\+tab|\/home\/\S+\s*$|New session(?:\s*[.:+].*)?$|Build\s*·|Thought\s*·|\+?\s*Thought\s*·|~\s*[\d.,]+\s*[KMB]?\s*\(\d+%\)\s*$|[\d.]+\s*tok\/s|opencode\s*$|\(\d+\s+earlier lines?\)|run\s+Run OpenCode|session\s+Manage sessions|service\s+Manage the background|reload\s+Reload configuration|pair\s+Print one-time|serve\s+Start the v2)/i;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
 const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·✦]\s*(Working|Thinking|Running|Generating|Esc to|Pondering|Waiting)|Trusting workspace/i;
 const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|agent|copilot)\b/;
@@ -3618,6 +3753,10 @@ function cleanScreen(screen, width = 80) {
       const urlOpen = /https?:\/\/\S*$/i.test(prev.text);
       if (urlOpen && AUTH_URL_STOP.test(t)) {
         out.push({ text: l, wide: l.length >= width - 16 });
+      } else if (/[A-Za-z0-9]-$/.test(prev.text) && /^[a-z0-9]/.test(t)) {
+        // Terminal hard-wrap often inserts a hyphen mid-token (opencode/big- + pickle).
+        prev.text = `${prev.text.replace(/-$/, '')}${t}`;
+        prev.wide = l.length >= width - 16;
       } else {
         prev.text += (urlOpen ? t.replace(/\s+/g, '') : ` ${t}`);
         prev.wide = l.length >= width - 16;
@@ -3629,23 +3768,42 @@ function cleanScreen(screen, width = 80) {
 const working = () => !!W.screen && SPIN.test(W.screen.screen.replace(ANSI_RE, ''));
 /** Cursor uses → ; Claude/pi use >❯›. */
 const stripPrompt = (l) => l.replace(/^\s*[>❯›→]\s*/, '').trim();
-const MSG_TS_W = 58;
+const MSG_TS_W = 72;
 /** Format a transcript timestamp for the swipe-reveal label (empty if unknown). */
 function fmtMsgTs(ts) {
   if (ts == null || ts === '') return '';
   let d;
   if (typeof ts === 'number') d = new Date(ts < 1e12 ? ts * 1000 : ts);
-  else d = new Date(ts);
+  else {
+    const raw = String(ts).replace(/\s*\((?:UTC|GMT(?:[+-]\d+)?)\)\s*$/i, '').trim();
+    d = new Date(raw);
+    if (Number.isNaN(d.getTime())) d = new Date(ts);
+  }
   if (Number.isNaN(d.getTime())) return '';
   const now = new Date();
   const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
   try {
+    // 24h keeps the swipe label short and readable on a phone.
     return sameDay
-      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-      : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+      : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
   } catch {
     return sameDay ? d.toISOString().slice(11, 16) : d.toISOString().slice(0, 16).replace('T', ' ');
   }
+}
+/** Peel cloud-agent XML wrappers if a transcript still has them (bridge also strips). */
+function displayUserText(text) {
+  let t = String(text || '');
+  const uq = t.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/i);
+  if (uq) t = uq[1];
+  t = t.replace(/<timestamp>\s*[\s\S]*?\s*<\/timestamp>\s*/gi, '');
+  t = t.replace(/<\/?(?:user_query|timestamp)(?:\s[^>]*)?>/gi, '');
+  return t.replace(/^\s+|\s+$/g, '');
+}
+function userMsgTs(m) {
+  if (m?.ts != null && m.ts !== '') return m.ts;
+  const tm = String(m?.text || '').match(/<timestamp>\s*([\s\S]*?)\s*<\/timestamp>/i);
+  return tm ? tm[1].replace(/\s+/g, ' ').trim() : null;
 }
 /** Wrap a bubble so a slight left swipe reveals the time when available. */
 function wrapTs(inner, ts, id) {
@@ -3677,18 +3835,28 @@ const toolLine = (t) => {
 };
 
 function renderPi() {
-  const msgs = W.pi.messages;
+  const msgs = Array.isArray(W.pi?.messages) ? W.pi.messages : [];
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
-  if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
+  if (W.pending && lastUser) {
+    const got = displayUserText(lastUser.text).trim();
+    if (got === W.pending.trim() || lastUser.text.trim() === W.pending.trim()) W.pending = null;
+  }
   const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', cursor: 'Cursor', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
-  let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
-  if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
+  let html = (W.pi?.total || 0) > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
+  let painted = 0;
   for (const m of msgs) {
-    if (m.role === 'user') html += wrapTs(`<div class="msg user">${esc(m.text)}</div>`, m.ts, m.id);
-    else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
-    else if (m.role === 'bash') html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
-    else if (m.role === 'assistant') {
+    if (m.role === 'user') {
+      const shown = displayUserText(m.text);
+      if (!shown) continue;
+      html += wrapTs(`<div class="msg user">${esc(shown)}</div>`, userMsgTs(m), m.id);
+      painted++;
+    } else if (m.role === 'note') {
+      if (m.text) { html += `<div class="pnote">${esc(m.text)}</div>`; painted++; }
+    } else if (m.role === 'bash') {
+      html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
+      painted++;
+    } else if (m.role === 'assistant') {
       let body = '';
       if (m.thinking) body += fold(`${m.id}:t`, 'think', '▸ réflexion', `<pre>${esc(m.thinking)}</pre>`);
       if (m.text) body += `<div class="text">${md(m.text)}</div>`;
@@ -3698,17 +3866,26 @@ function renderPi() {
       }
       if (m.error) body += `<div class="err-line">Erreur : ${esc(m.error)}</div>`;
       if (m.aborted) body += `<div class="err-line">Interrompu</div>`;
-      if (body) html += wrapTs(`<div class="pmsg assistant">${body}</div>`, m.ts, m.id);
+      if (body) { html += wrapTs(`<div class="pmsg assistant">${body}</div>`, m.ts, m.id); painted++; }
     }
   }
-  if (W.pending) html += `<div class="msg user pending">${esc(W.pending)}</div>`;
-  if (live) {
+  if (W.pending) { html += `<div class="msg user pending">${esc(W.pending)}</div>`; painted++; }
+  if (live && W.screen?.screen) {
     // While pi streams, the reply isn't in the session file yet: show what the screen has after the last prompt.
     const lines = cleanScreen(W.screen.screen, W.screen.width);
-    const anchor = W.pending || lastUser?.text || '';
+    const anchor = W.pending || displayUserText(lastUser?.text || '');
     let i = anchor ? lines.map(stripPrompt).lastIndexOf(anchor.trim().split('\n').pop().trim()) : -1;
     const partial = i >= 0 ? lines.slice(i + 1).join('\n').trim() : '';
     html += `<div class="pmsg assistant">${partial ? `<div class="text">${md(partial)}</div>` : ''}<span class="typing"><i></i><i></i><i></i></span></div>`;
+    painted++;
+  }
+  // Session file present but nothing visible (format drift / skipped roles): never leave Chat blank.
+  if (!painted) {
+    if (W.screen?.screen) {
+      html = `<div class="pnote">Transcript ${esc(who)} partiel — vue écran nettoyée</div>` + renderGeneric();
+    } else {
+      html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
+    }
   }
   return html;
 }
@@ -3745,7 +3922,7 @@ function drawChat() {
   let html;
   if (W.profile.chat && W.pi) html = renderPi();
   else if (W.profile.chat && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
-  else html = (W.profile.chat ? `<div class="pnote">Session ${esc(W.profile.id)} introuvable : vue de l'écran</div>` : '') + renderGeneric();
+  else html = (W.profile.chat ? `<div class="pnote">Transcript ${esc(W.profile.id)} indisponible — vue écran nettoyée</div>` : '') + renderGeneric();
   if (html === W.last) return;
   const box = $('#chatbox');
   const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
@@ -3912,8 +4089,9 @@ $('#dock-handle').addEventListener('click', () => {
 // Answer chips when the agent waits (y/n, 1/2/3…) — and login URL/code helpers.
 function suggestFromScreen() {
   if (!W.screen?.screen) return [];
-  // Use cleaned+healed text so hard-wrapped OAuth URLs are whole before we chip them.
-  const txt = cleanScreen(W.screen.screen, W.screen.width || 80).join('\n');
+  // Raw screen keeps OSC 8 hyperlink payloads (complete URL). Cleaned text is for y/n chips only.
+  const raw = W.screen.screen;
+  const txt = cleanScreen(raw, W.screen.width || 80).join('\n');
   const chips = [], seen = new Set();
   const add = (l, payload) => {
     const key = [
@@ -3929,10 +4107,11 @@ function suggestFromScreen() {
     seen.add(key);
     chips.push({ l, ...payload });
   };
-  const auth = authFromText(txt);
+  const auth = authFromText(raw);
   for (const u of auth.urls) {
-    add('Ouvrir', { open: u, pri: true });
-    add('Lien', { copy: u, sec: true });
+    // Show host on the chip; the payload always carries the FULL url (never a head…tail label).
+    add(`Ouvrir ${authUrlHost(u)}`, { open: u, pri: true });
+    add('Copier le lien', { copy: u, sec: true });
   }
   for (const code of auth.codes) {
     const short = code.length > 12 ? `${code.slice(0, 9)}…` : code;
@@ -3954,14 +4133,23 @@ function suggestFromScreen() {
 }
 async function runAuthAction(kind, value) {
   if (kind === 'open' && value) {
-    window.open(value, '_blank', 'noopener,noreferrer');
+    const href = sanitizeAuthUrl(value);
+    // Prefer a real <a> click — more reliable than window.open in iOS PWAs / WebViews.
+    try {
+      const a = document.createElement('a');
+      a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch {
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
     toast('Login ouvert — reviens ici après', true);
     return;
   }
   if (kind === 'copy' && value) {
+    const text = sanitizeAuthUrl(value) || value;
     try {
-      await navigator.clipboard.writeText(value);
-      toast('Copié', true);
+      await navigator.clipboard.writeText(text);
+      toast(text.startsWith('http') ? `Lien copié (${text.length} car.)` : 'Copié', true);
     } catch { toast('Copie impossible — sélectionne le texte'); }
     return;
   }
@@ -4026,11 +4214,19 @@ input.addEventListener('input', () => {
   setStatus(W.status);
 });
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
+// iOS / soft keyboards often insert a line break without a preventable keydown Enter.
+input.addEventListener('beforeinput', (e) => {
+  if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+    e.preventDefault();
+    $('#composer').requestSubmit();
+  }
+});
 $('#composer').addEventListener('submit', async (e) => {
   e.preventDefault();
   touched();
   if ($('#send').classList.contains('stop')) return press({ k: W.profile.stop });
-  const text = input.value;
+  // Trailing \\n from a soft-keyboard Enter becomes a real newline in Cursor (LF ≈ Ctrl+J).
+  const text = input.value.replace(/\n+$/g, '').replace(/^\n+/g, '');
   input.value = ''; input.style.height = '44px';
   try {
     if (!text) return await api(srv, 'keys', { target: W.win, keys: ['Enter'] });
@@ -4042,6 +4238,8 @@ $('#composer').addEventListener('submit', async (e) => {
       W.last = ''; drawChat();
       $('#chatbox').scrollTop = $('#chatbox').scrollHeight;
     }
+    // text is already stripped of trailing soft-keyboard \\n; mid-message breaks stay
+    // (Cursor maps a literal LF to “insert newline”, then our Enter submits).
     await api(srv, 'send', { target: W.win, text, enter: true });
     tick();
   } catch (err) { toast(err.message); }
@@ -4076,7 +4274,7 @@ function kbPrefs() {
   if (!state.kb) state.kb = { layout: /^fr/i.test(navigator.language || '') ? 'azerty' : 'qwerty', alpha: 'glass', overlay: false, folded: false, use: {} };
   return state.kb;
 }
-const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
+const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'cursor', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
 const kbPad = () => (KBD.on && !kbPrefs().overlay ? $('#tkb').offsetHeight : 0);
 
 const ACCENTS = { e: 'éèêë', a: 'àâäæ', c: 'ç', u: 'ùûü', i: 'îï', o: 'ôöœ', y: 'ÿ', n: 'ñ', "'": '’"«»', '"': '«»“”',
