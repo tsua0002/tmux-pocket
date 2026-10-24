@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const agentChat = require('./agent-chat');
+const persist = require('./persist');
 
 const PORT = Number(process.env.PORT || 8022);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -514,6 +515,7 @@ const ops = {
   },
 
   // New window running `command` inside a shell (window survives when the agent exits).
+  // remain-on-exit keeps the pane if a one-shot process dies; the shell still owns the window.
   async new(c, { session, name, command, cwd }) {
     const has = await tmux(c, `has-session -t ${q(session)}`);
     const dir = cwd ? `-c ${q(cwd)}` : '';
@@ -523,8 +525,21 @@ const ops = {
       : await tmux(c, `new-session -d -P -F '#{window_index}' -s ${q(session)} ${nm} ${dir} -x 120 -y 40`);
     if (r.code !== 0) throw new Error(r.stderr.trim() || 'new-window failed');
     const window = Number(r.stdout.trim());
+    await tmux(c, `set-window-option -t ${q(`${session}:${window}`)} remain-on-exit on`);
     if (command) await ops.send(c, { target: { session, window }, text: command });
     return { session, window };
+  },
+
+  // tmux-resurrect + continuum status / one-click install (sessions survive reboots).
+  async persistStatus(c) {
+    const r = await run(c, persist.statusScript());
+    return persist.parseStatus(r.stdout);
+  },
+  async persistInstall(c) {
+    const r = await run(c, persist.installScript());
+    if (r.code !== 0) throw new Error(r.stderr.trim() || r.stdout.trim() || 'persist install failed');
+    const st = await ops.persistStatus(c);
+    return { ok: true, ...st };
   },
 
   async kill(c, { target: t }) {
@@ -600,6 +615,12 @@ probe() {
   # Official pi installer / npm leave state under ~/.pi even when PATH is incomplete over SSH.
   if [ -z "$p" ] && [ "$b" = pi ] && [ -d "$HOME/.pi/agent" -o -x "$HOME/.pi/bin/pi" ]; then
     p="~/.pi"
+  fi
+  # Cursor CLI installs to ~/.local/bin/agent (+ versions under ~/.local/share/cursor-agent).
+  if [ -z "$p" ] && { [ "$b" = agent ] || [ "$b" = cursor-agent ]; }; then
+    if [ -x "$HOME/.local/bin/agent" ]; then p="$HOME/.local/bin/agent"
+    elif [ -d "$HOME/.local/share/cursor-agent" ]; then p="~/.local/share/cursor-agent"
+    fi
   fi
   if [ -n "$p" ]; then printf 'present\\t%s\\t%s\\n' "$b" "$p"
   else printf 'missing\\t%s\\n' "$b"; fi
@@ -679,6 +700,7 @@ ${probes}
   async codex(c, args) { return ops.agentChat(c, { ...args, kind: 'codex' }); },
   async gemini(c, args) { return ops.agentChat(c, { ...args, kind: 'gemini' }); },
   async opencode(c, args) { return ops.agentChat(c, { ...args, kind: 'opencode' }); },
+  async cursor(c, args) { return ops.agentChat(c, { ...args, kind: 'cursor' }); },
 
   // CLI login hints for each agent (no remote I/O — the phone runs the command in a tmux window).
   async agentAuth() {
@@ -797,5 +819,5 @@ if (require.main === module) {
 module.exports = {
   ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk,
   pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
-  agentChat,
+  agentChat, persist,
 };
