@@ -209,18 +209,110 @@ test('piIngest tolerates string assistant content and missing tools', () => {
   ];
   for (const line of lines) assert.doesNotThrow(() => piIngest(cache, line));
   const conv = piConversation(cache);
-  assert.ok(conv.messages.length >= 3);
+  // Consecutive assistants coalesce into one bubble (string reply + tool round).
+  assert.strictEqual(conv.messages.length, 3);
   assert.strictEqual(conv.messages[0].role, 'user');
   assert.strictEqual(conv.messages[0].text, 'bonjour');
-  const strAssistant = conv.messages.find((m) => m.text === 'contenu en une string');
-  assert.ok(strAssistant, 'string content becomes text');
-  assert.deepStrictEqual(strAssistant.tools, []);
-  const withTool = conv.messages.find((m) => m.text === 'avec outil');
-  assert.ok(withTool);
-  assert.strictEqual(withTool.tools[0].name, 'bash');
-  assert.strictEqual(withTool.tools[0].done, true);
-  assert.strictEqual(withTool.tools[0].output, 'Linux');
+  const asst = conv.messages[1];
+  assert.strictEqual(asst.role, 'assistant');
+  assert.match(asst.text, /contenu en une string/);
+  assert.match(asst.text, /avec outil/);
+  assert.strictEqual(asst.tools[0].name, 'bash');
+  assert.strictEqual(asst.tools[0].done, true);
+  assert.strictEqual(asst.tools[0].output, 'Linux');
   assert.ok(conv.messages.some((m) => m.role === 'note' && m.text === 'hook note'));
+});
+
+test('piConversation coalesces tool rounds and keeps full text when tip is toolResult', () => {
+  const cache = { offset: 0, entries: new Map(), order: [], header: null };
+  const lines = [
+    JSON.stringify({ type: 'session', id: 's1', cwd: '/tmp', timestamp: 't0' }),
+    JSON.stringify({
+      type: 'message', id: 'u1', parentId: null, timestamp: 't1',
+      message: { role: 'user', content: 'index pi-telegram' },
+    }),
+    // Tool-only round → used to paint an empty gray bar in Chat.
+    JSON.stringify({
+      type: 'message', id: 'a1', parentId: 'u1', timestamp: 't2',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'tc1', name: 'read', arguments: { path: 'x' } }],
+        model: 'test',
+      },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'tr1', parentId: 'a1', timestamp: 't3',
+      message: { role: 'toolResult', toolCallId: 'tc1', content: 'ok', isError: false },
+    }),
+    // Partial text mid-turn (prod screenshot: sentence cut mid-way).
+    JSON.stringify({
+      type: 'message', id: 'a2', parentId: 'tr1', timestamp: 't4',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'vérifier les credentials' },
+          { type: 'text', text: 'Le service tourne, mais sa conversation est' },
+          { type: 'toolCall', id: 'tc2', name: 'bash', arguments: { command: 'true' } },
+        ],
+        model: 'test',
+      },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'tr2', parentId: 'a2', timestamp: 't5',
+      message: { role: 'toolResult', toolCallId: 'tc2', content: '', isError: false },
+    }),
+    JSON.stringify({
+      type: 'message', id: 'a3', parentId: 'tr2', timestamp: 't6',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '`pi-telegram` est désormais indexé : état complet.' },
+          { type: 'text', text: 'Hermes est cohérent.' },
+        ],
+        model: 'test',
+      },
+    }),
+    // Tip often ends on a trailing toolResult / hook — leaf must stay last-entry.
+    JSON.stringify({
+      type: 'message', id: 'tr3', parentId: 'a3', timestamp: 't7',
+      message: { role: 'toolResult', toolCallId: 'tc-orphan', content: 'noise', isError: false },
+    }),
+  ];
+  for (const line of lines) piIngest(cache, line);
+  const conv = piConversation(cache);
+  assert.strictEqual(conv.messages.length, 2, 'user + one coalesced assistant');
+  assert.strictEqual(conv.messages[0].text, 'index pi-telegram');
+  const asst = conv.messages[1];
+  assert.match(asst.text, /Le service tourne, mais sa conversation est/);
+  assert.match(asst.text, /pi-telegram.*indexé/);
+  assert.match(asst.text, /Hermes est cohérent/);
+  assert.match(asst.thinking, /vérifier les credentials/);
+  assert.strictEqual(asst.tools.length, 2);
+  assert.ok(asst.tools.every((t) => t.done), 'toolResults resolved from full cache');
+  assert.strictEqual(asst.tools[0].name, 'read');
+  assert.strictEqual(asst.tools[1].output, '');
+});
+
+test('piIngest reads output_text / content string blocks', () => {
+  const cache = { offset: 0, entries: new Map(), order: [], header: null };
+  piIngest(cache, JSON.stringify({
+    type: 'message', id: 'u1', parentId: null, timestamp: 't1',
+    message: { role: 'user', content: 'x' },
+  }));
+  piIngest(cache, JSON.stringify({
+    type: 'message', id: 'a1', parentId: 'u1', timestamp: 't2',
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'output_text', output_text: 'via output_text' },
+        { type: 'text', content: 'via content field' },
+      ],
+      model: 'test',
+    },
+  }));
+  const conv = piConversation(cache);
+  assert.match(conv.messages[1].text, /via output_text/);
+  assert.match(conv.messages[1].text, /via content field/);
 });
 
 test('encodeCodeafWorkspace matches codeaf encodeWorkspace', () => {

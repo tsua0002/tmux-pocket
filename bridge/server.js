@@ -225,8 +225,22 @@ const piCache = new Map(); // conn|file -> { offset, entries, order, header }
 const codeafCache = new Map(); // conn|file -> { offset, entries, order, header, name, seq }
 const agentCache = new Map(); // conn|kind|file -> unified agent-chat cache
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s || '');
-const textOf = (content) => typeof content === 'string' ? content
-  : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+// pi / codeaf blocks: text may live on .text, .content, or (rarely) output_text.
+// Thinking/reasoning are extracted separately — never fold them into visible text.
+const textOf = (content) => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((b) => {
+    if (typeof b === 'string') return b;
+    if (!b || typeof b !== 'object') return '';
+    if (b.type === 'thinking' || b.type === 'reasoning' || b.type === 'toolCall' || b.type === 'tool_use') return '';
+    if (typeof b.text === 'string') return b.text;
+    if (typeof b.output_text === 'string') return b.output_text;
+    if (typeof b.input_text === 'string') return b.input_text;
+    if (typeof b.content === 'string') return b.content;
+    return '';
+  }).filter(Boolean).join('\n');
+};
 
 // ---------- CodeAF sessions (AgentField) ----------
 // v3: ~/.codeaf/v3/projects/<encoded-workspace>/<16-hex-id>/transcript.jsonl
@@ -415,14 +429,10 @@ function piIngest(cache, line) {
   cache.order.push(e.id);
 }
 
-// The active branch is the path from the latest message-like entry back to the root.
+// The active branch is the path from the last appended entry back to the root
+// (same rule as pi's SessionManager when loading a JSONL file).
 function piConversation(cache) {
-  let leaf = null;
-  for (let i = cache.order.length - 1; i >= 0; i--) {
-    const e = cache.entries.get(cache.order[i]);
-    if (e && !e.skip && e.role && e.role !== 'toolResult') { leaf = e.id; break; }
-  }
-  if (!leaf) leaf = cache.order[cache.order.length - 1];
+  const leaf = cache.order[cache.order.length - 1];
   const path = [];
   const seen = new Set();
   for (let id = leaf; id && !seen.has(id); id = cache.entries.get(id)?.parentId) {
@@ -434,8 +444,12 @@ function piConversation(cache) {
   path.reverse();
   let model = null, name = null;
   for (const e of cache.order.map((id) => cache.entries.get(id))) if (e?.name) name = e.name;
+  // Tool results may sit off a skipped tip; resolve them from the whole session.
   const results = new Map();
-  for (const e of path) if (e.role === 'toolResult') results.set(e.toolCallId, e);
+  for (const id of cache.order) {
+    const e = cache.entries.get(id);
+    if (e?.role === 'toolResult' && e.toolCallId) results.set(e.toolCallId, e);
+  }
   const messages = [];
   for (const e of path) {
     if (e.model) model = e.model;
@@ -451,6 +465,19 @@ function piConversation(cache) {
         isError: results.get(t.id)?.isError,
         done: results.has(t.id),
       }));
+      // One turn = many JSONL assistants (tool rounds + partial text). Merge so
+      // Chat shows one bubble instead of empty gray bars and cut mid-sentences.
+      const prev = messages[messages.length - 1];
+      if (prev && prev.role === 'assistant') {
+        if (msg.text) prev.text = prev.text ? `${prev.text}\n${msg.text}` : msg.text;
+        if (msg.thinking) prev.thinking = prev.thinking ? `${prev.thinking}\n${msg.thinking}` : msg.thinking;
+        if (msg.error) prev.error = msg.error;
+        if (msg.aborted) prev.aborted = true;
+        prev.tools = [...(prev.tools || []), ...msg.tools];
+        prev.id = msg.id;
+        prev.ts = msg.ts || prev.ts;
+        continue;
+      }
     }
     if (e.role === 'bash') msg.output = e.output;
     messages.push(msg);
