@@ -1826,23 +1826,42 @@ function statusOf(lines) {
   const txt = lines.join('\n');
   return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
 }
-const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve|Open |Go to|Navigate)/i;
+const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve|Open |Go to|Navigate|Ctrl\+click|Continue in)/i;
+/** CSI + OSC (BEL or ST=`ESC \\`). Pi/Ink hyperlinks use OSC 8 with ST — the old BEL-only regex left `\\` junk and duplicated URLs. */
+const STRIP_ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+const OSC8_RE = /\x1b\]8;[^\x07\x1b]*;([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
+function stripAnsi(s) {
+  return String(s ?? '').replace(STRIP_ANSI_RE, '');
+}
+/** URLs embedded in OSC 8 hyperlinks (often the only complete copy when the TUI hard-wraps the visible text). */
+function urlsFromOsc8(raw) {
+  const out = [];
+  for (const m of String(raw ?? '').matchAll(OSC8_RE)) {
+    const u = (m[1] || '').trim();
+    if (/^https?:\/\//i.test(u)) out.push(u);
+  }
+  return out;
+}
 /** Strip TUI box/padding junk so hard-wrapped OAuth lines can be rejoined. */
 function stripUrlLineNoise(s) {
-  // Inline ANSI/box patterns — this helper is declared above the shared ANSI_RE/BOX_EDGE consts.
-  return String(s || '')
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g, '')
+  return stripAnsi(s)
     .replace(/^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g, '')
     .replace(/[\u2500-\u257F]+/g, ' ')
+    // ST (`ESC \\`) often survives as a lone `\\` between a full OSC URL and the next wrap.
+    .replace(/\\(?=https?:\/\/)/gi, ' ')
+    .replace(/\\+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 /** Strip prose accidentally glued onto an OAuth URL (e.g. …comEntertheauthorizationcode). */
 function sanitizeAuthUrl(u) {
-  return String(u || '')
-    .replace(/\s+/g, '')
-    .replace(/[│┃║]/g, '')
-    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*|Opentheurl.*)$/i, '')
+  let s = String(u || '').replace(/\s+/g, '').replace(/[│┃║]/g, '');
+  // If two URLs were glued with a lost ST, keep only the first complete one.
+  const glued = s.search(/(?!^)https?:\/\//i);
+  if (glued > 20) s = s.slice(0, glued);
+  return s
+    .replace(/\\+$/g, '')
+    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*|Opentheurl.*|Ctrl\+click.*|Continueinyourbrowser.*)$/i, '')
     .replace(/[.,;:!?）】»"'`]+$/g, '');
 }
 /** True if a compact string looks like a URL / query continuation. */
@@ -1869,6 +1888,8 @@ function healWrappedUrls(text) {
       const n = stripUrlLineNoise(lines[j]);
       if (!n || AUTH_URL_STOP.test(n) || MARK.test(n)) break;
       const compact = n.replace(/\s+/g, '');
+      // A new absolute URL means the previous one ended (OSC 8 wrap / ST glue).
+      if (/^https?:\/\//i.test(compact) && /https?:\/\//i.test(raw)) break;
       // Prose line (several words, no query junk) — URL ended.
       if (/\s/.test(n) && !/[=&#%]/.test(n) && n.split(/\s+/).length >= 3) break;
       if (!looksLikeUrlChunk(compact) && !/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
@@ -1887,17 +1908,45 @@ function healWrappedUrls(text) {
   }
   return out.join('\n');
 }
+/** Keep the longest complete URL; drop truncated OSC-8 wrap fragments that are prefixes of it. */
+function pickAuthUrls(candidates) {
+  const scored = [...new Set(candidates.map(sanitizeAuthUrl))]
+    .filter((u) => u.length > 20 && /^https?:\/\//i.test(u))
+    .map((u) => {
+      let score = u.length;
+      if (/[?&](state|code_challenge|redirect_uri|client_id)=/i.test(u)) score += 1000;
+      if (/oauth|authorize|device|login|auth/i.test(u)) score += 100;
+      return { u, score };
+    })
+    .sort((a, b) => b.score - a.score || b.u.length - a.u.length);
+  const out = [];
+  for (const { u } of scored) {
+    // Skip shorter fragments of a URL we already kept (OSC 8 per-line wraps).
+    if (out.some((k) => k === u || k.startsWith(u))) continue;
+    out.push(u);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
 /** Pull login URLs + one-time codes out of a TUI screen — keep it dumb and useful. */
 function authFromText(txt) {
   if (!txt) return { urls: [], codes: [], wantsPaste: false };
-  const healed = healWrappedUrls(String(txt).replace(ANSI_RE, ''));
-  const urls = [...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|]+/gi)]
-    .map((m) => sanitizeAuthUrl(m[0]))
-    .filter((u) => u.length > 20 && /https?:\/\//i.test(u))
-    // Prefer real login/OAuth URLs when several matches exist.
-    .sort((a, b) => Number(/oauth|authorize|login|device|auth/i.test(b)) - Number(/oauth|authorize|login|device|auth/i.test(a)) || b.length - a.length)
-    .filter((u, i, a) => a.indexOf(u) === i)
-    .slice(0, 3);
+  const raw = String(txt);
+  // 1) OSC 8 payloads (complete URL even when the visible wrap is per-line truncated).
+  // 2) Visible text after proper ST-aware ANSI strip + hard-wrap heal.
+  const stripped = stripAnsi(raw);
+  const healed = healWrappedUrls(stripped);
+  // Split accidental `https://…\https://…` glues left when ESC was lost from ST.
+  const glued = [];
+  for (const chunk of stripped.split(/\\(?=https?:\/\/)/i)) {
+    const m = chunk.match(/https?:\/\/[^\s<>"'`)\]|\\]+/i);
+    if (m) glued.push(m[0]);
+  }
+  const urls = pickAuthUrls([
+    ...urlsFromOsc8(raw),
+    ...[...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|\\]+/gi)].map((m) => m[0]),
+    ...glued,
+  ]);
   const codes = [];
   for (const m of healed.matchAll(/\b([A-Z0-9]{3,8}-[A-Z0-9]{3,8})\b/g)) codes.push(m[1]);
   for (const m of healed.matchAll(/(?:enter code|code|token|api[_ ]?key)\s*[:=]\s*([A-Za-z0-9._-]{4,})/gi)) {
@@ -1913,13 +1962,18 @@ function authUrlHost(u) {
 }
 /** URLs open; device codes tap-to-copy — full href always (truncated labels were copied broken on iOS). */
 function formatScreenText(raw) {
-  const text = healWrappedUrls(raw);
-  const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
+  const auth = authFromText(raw);
+  const text = healWrappedUrls(stripAnsi(raw))
+    // Collapse glued OSC-8 duplicates in the visible transcript.
+    .replace(/(https?:\/\/[^\s\\]+)(?:\\+\1|\\+https?:\/\/\S*)+/gi, '$1');
+  const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|\\]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
   return parts.map((p, i) => {
     if (i % 2 === 0) return esc(p);
     if (/^https?:\/\//i.test(p)) {
-      const href = sanitizeAuthUrl(p);
-      // Full URL visible + dedicated copy control (selecting a head…tail label used to break login).
+      let href = sanitizeAuthUrl(p);
+      // Prefer the complete OSC-8 / healed login URL when the visible chunk is a wrap fragment.
+      const best = auth.urls.find((u) => u.startsWith(href) || href.startsWith(u.slice(0, 48))) || auth.urls[0];
+      if (best && best.length >= href.length) href = best;
       return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>`
         + ` <button type="button" class="auth-code" data-auth="copy" data-v="${esc(href)}" aria-label="Copier le lien">Copier</button>`;
     }
@@ -3650,7 +3704,8 @@ function parseBuffers(screen) {
 }
 
 // ---------- chat ----------
-const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
+// Keep in sync with STRIP_ANSI_RE (OSC must accept ST=`ESC \\`, not only BEL).
+const ANSI_RE = STRIP_ANSI_RE;
 const BOX_EDGE = /^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g;
 const BLOCK_CH = /[█▉▊▋▌▍▎▏▐▀▄▆▇▅▃▂▁■▪▫▮▬▓▒░]/;
 /** Box rules (─) and Gemini-style solid block bars (█▆…). */
@@ -4034,8 +4089,9 @@ $('#dock-handle').addEventListener('click', () => {
 // Answer chips when the agent waits (y/n, 1/2/3…) — and login URL/code helpers.
 function suggestFromScreen() {
   if (!W.screen?.screen) return [];
-  // Use cleaned+healed text so hard-wrapped OAuth URLs are whole before we chip them.
-  const txt = cleanScreen(W.screen.screen, W.screen.width || 80).join('\n');
+  // Raw screen keeps OSC 8 hyperlink payloads (complete URL). Cleaned text is for y/n chips only.
+  const raw = W.screen.screen;
+  const txt = cleanScreen(raw, W.screen.width || 80).join('\n');
   const chips = [], seen = new Set();
   const add = (l, payload) => {
     const key = [
@@ -4051,7 +4107,7 @@ function suggestFromScreen() {
     seen.add(key);
     chips.push({ l, ...payload });
   };
-  const auth = authFromText(txt);
+  const auth = authFromText(raw);
   for (const u of auth.urls) {
     // Show host on the chip; the payload always carries the FULL url (never a head…tail label).
     add(`Ouvrir ${authUrlHost(u)}`, { open: u, pri: true });
