@@ -133,19 +133,38 @@ function locateOpencode(tm, t) {
     `cwd=$(${tm} display -p -t ${t} '#{pane_current_path}')`,
     'pid=$(pgrep -P "$pp" -x opencode | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" opencode | head -1); [ -n "$pid" ] || pid=$pp',
     'echo "now $(date +%s) age $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d \' \')"',
+    'echo "cwd $cwd"',
     'root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true); [ -n "$root" ] || root=$cwd',
     'base="${XDG_DATA_HOME:-$HOME/.local/share}/opencode"',
-    // storage_v2 / legacy session JSON markers (path itself is the session id key)
-    'find "$base" -type f \\( -path \'*/session/*/*.json\' -o -name \'ses_*.json\' \\) 2>/dev/null | head -60 | while IFS= read -r f; do',
-    '  echo "f $(stat -c \'%Y %s\' "$f") $f"',
+    // Current OpenCode: SQLite at opencode.db (session → message → part). Prefer the active DB.
+    'db=$(command -v opencode >/dev/null && opencode db path 2>/dev/null || true)',
+    'for candidate in "$db" "$OPENCODE_DB" "$base/opencode.db" "$base/db.sqlite"; do',
+    '  [ -n "$candidate" ] && [ -f "$candidate" ] || continue',
+    '  echo "f $(stat -c \'%Y %s\' "$candidate") $candidate"',
     'done',
-    // SQLite db as a synthetic "file" — reader will detect .db
-    'for db in "$base/opencode.db" "$base/db.sqlite"; do',
-    '  [ -f "$db" ] || continue',
-    '  echo "f $(stat -c \'%Y %s\' "$db") $db"',
+    // Legacy storage_v2 JSON sessions (pre-SQLite).
+    'find "$base" -type f \\( -path \'*/session/*/*.json\' -o -name \'ses_*.json\' \\) 2>/dev/null | head -40 | while IFS= read -r f; do',
+    '  echo "f $(stat -c \'%Y %s\' "$f") $f"',
     'done',
     'true',
   ].join('\n');
+}
+
+/** Prefer SQLite DBs over legacy JSON; then newest mtime. */
+function pickOpencodeStorage(out) {
+  const cwd = /^cwd (.+)$/m.exec(out)?.[1]?.trim() || '';
+  const seen = new Map();
+  for (const [, mtime, size, p] of out.matchAll(/^f (\d+) (\d+) (\S+)$/gm)) {
+    seen.set(p, { path: p, mtime: +mtime, size: +size });
+  }
+  const files = [...seen.values()];
+  if (!files.length) return { file: null, cwd };
+  const score = (f) => {
+    const db = /\.(?:db|sqlite)$/i.test(f.path) ? 2 : 0;
+    return db * 1e15 + f.mtime;
+  };
+  files.sort((a, b) => score(b) - score(a));
+  return { file: files[0], files, cwd };
 }
 
 /** Cursor Agent CLI (`agent` / `cursor-agent`): Anthropic-style JSONL under ~/.cursor/projects/<id>/agent-transcripts/. */
@@ -418,7 +437,27 @@ const INGEST = {
   cursor: ingestClaude,
 };
 
+async function readOpencodeChat(ctx) {
+  const { c, t, run, q, connKey, tmuxPath, target, caches } = ctx;
+  const script = locateOpencode(tmuxPath || 'tmux', target(t));
+  const r = await run(c, script);
+  if (r.code !== 0) throw new Error(r.stderr.trim() || 'opencode session lookup failed');
+  const { files, cwd } = pickOpencodeStorage(r.stdout);
+  if (!files?.length) return { found: false };
+  for (const file of files) {
+    let hit = null;
+    if (/\.(?:db|sqlite)$/i.test(file.path)) {
+      hit = await readOpencodeDb({ c, run, q, file, caches, connKey, cwd });
+    } else if (file.path.endsWith('.json') && !file.path.includes('transcript')) {
+      hit = await readOpencodeSessionJson({ c, run, q, file, caches, connKey });
+    }
+    if (hit?.found) return hit;
+  }
+  return { found: false };
+}
+
 async function readJsonlChat({ kind, c, t, run, q, connKey, tmuxPath, target, caches }) {
+  if (kind === 'opencode') return readOpencodeChat({ c, t, run, q, connKey, tmuxPath, target, caches });
   const locate = LOCATE[kind];
   if (!locate) return { found: false };
   const script = locate(tmuxPath || 'tmux', target(t));
@@ -426,14 +465,6 @@ async function readJsonlChat({ kind, c, t, run, q, connKey, tmuxPath, target, ca
   if (r.code !== 0) throw new Error(r.stderr.trim() || `${kind} session lookup failed`);
   const file = pickByMtime(r.stdout);
   if (!file) return { found: false };
-
-  // OpenCode SQLite path handled separately
-  if (kind === 'opencode' && /\.db$|\.sqlite$/i.test(file.path)) {
-    return readOpencodeDb({ c, run, q, file, caches, connKey });
-  }
-  if (kind === 'opencode' && file.path.endsWith('.json') && !file.path.includes('transcript')) {
-    return readOpencodeSessionJson({ c, run, q, file, caches, connKey });
-  }
 
   const key = `${connKey(c)}|${c.transport || 'ssh'}|${kind}|${file.path}`;
   let cache = caches.get(key);
@@ -491,59 +522,152 @@ function ingestOpencodeMessage(cache, msg) {
   // session_message rows: { type, data } or legacy { role, parts }
   const type = msg.type || msg.role;
   const data = msg.data || msg;
+  const ts = msg.timestamp || data.timestamp || data.time?.created;
   if (type === 'user' || data.role === 'user') {
     const text = data.text || textOf(data.content) || textOf(data.parts);
-    if (text) pushMsg(cache, { id: msg.id || data.id, role: 'user', text });
+    if (text) pushMsg(cache, { id: msg.id || data.id, role: 'user', text, timestamp: ts });
     return;
   }
   if (type === 'assistant' || data.role === 'assistant') {
     const parts = data.content || data.parts || [];
     const text = textOf(parts.filter?.((p) => p.type === 'text') || parts);
     const thinking = clip(textOf((parts.filter?.((p) => p.type === 'reasoning' || p.type === 'thinking') || [])), 4000);
-    const tools = (parts.filter?.((p) => p.type === 'tool' || p.type === 'tool_use' || p.type === 'tool-invocation') || []).map((p, i) => ({
-      id: p.id || `t${i}`,
-      name: p.name || p.tool || 'tool',
-      args: clip(JSON.stringify(p.input || p.args || p.state || {}), 400),
-      output: clip(String(p.output || p.result || ''), 3000),
-      done: true,
-    }));
-    pushMsg(cache, { id: msg.id || data.id, role: 'assistant', text, thinking: thinking || undefined, tools });
+    const tools = (parts.filter?.((p) => p.type === 'tool' || p.type === 'tool_use' || p.type === 'tool-invocation') || []).map((p, i) => {
+      const st = p.state && typeof p.state === 'object' ? p.state : {};
+      return {
+        id: p.id || `t${i}`,
+        name: p.name || p.tool || st.name || 'tool',
+        args: clip(JSON.stringify(p.input || p.args || st.input || p.state || {}), 400),
+        output: clip(String(p.output || p.result || st.output || st.result || ''), 3000),
+        done: true,
+      };
+    });
+    pushMsg(cache, {
+      id: msg.id || data.id, role: 'assistant', text, thinking: thinking || undefined, tools,
+      timestamp: ts, model: data.modelID || data.model,
+    });
     return;
   }
   if (type === 'shell') {
-    pushMsg(cache, { id: msg.id, role: 'bash', text: data.command || data.text || '', output: clip(String(data.output || ''), 3000) });
+    pushMsg(cache, { id: msg.id, role: 'bash', text: data.command || data.text || '', output: clip(String(data.output || ''), 3000), timestamp: ts });
   }
 }
 
-async function readOpencodeDb({ c, run, q, file, caches, connKey }) {
+/** Build a phone chat from modern OpenCode SQLite rows (message + part). */
+function ingestOpencodeDbRows(cache, rows) {
+  const byMsg = new Map();
+  const order = [];
+  for (const row of rows || []) {
+    const mid = row.mid || row.message_id || row.id;
+    if (!mid) continue;
+    let g = byMsg.get(mid);
+    if (!g) {
+      g = {
+        id: mid,
+        role: row.role || 'assistant',
+        model: row.model || null,
+        t: row.t || row.time_created || null,
+        texts: [],
+        thinking: [],
+        tools: [],
+      };
+      byMsg.set(mid, g);
+      order.push(mid);
+    }
+    if (row.role) g.role = row.role;
+    if (row.model) g.model = row.model;
+    const ptype = row.ptype || row.part_type || '';
+    if (ptype === 'text' && row.text) g.texts.push(String(row.text));
+    else if ((ptype === 'reasoning' || ptype === 'thinking') && row.text) g.thinking.push(String(row.text));
+    else if (ptype === 'tool' || ptype === 'tool_use') {
+      let input = row.tool_input, output = row.tool_output;
+      try { if (typeof input === 'string' && input.startsWith('{')) input = JSON.parse(input); } catch { /* keep */ }
+      try { if (typeof output === 'string' && (output.startsWith('{') || output.startsWith('['))) output = JSON.parse(output); } catch { /* keep */ }
+      g.tools.push({
+        id: row.pid || `t${g.tools.length}`,
+        name: row.tool_name || row.tool || 'tool',
+        args: clip(typeof input === 'string' ? input : JSON.stringify(input ?? {}), 400),
+        output: clip(typeof output === 'string' ? output : JSON.stringify(output ?? ''), 3000),
+        done: true,
+      });
+    } else if (!ptype && row.text) {
+      g.texts.push(String(row.text));
+    }
+  }
+  for (const mid of order) {
+    const g = byMsg.get(mid);
+    if (!g) continue;
+    const ts = g.t != null ? (Number(g.t) < 1e12 ? Number(g.t) * 1000 : Number(g.t)) : undefined;
+    if (g.role === 'user') {
+      const text = g.texts.join('\n').trim();
+      if (!text) continue;
+      cache.entries.set(mid, { id: mid, role: 'user', text, timestamp: ts });
+      cache.order.push(mid);
+      continue;
+    }
+    const text = g.texts.join('\n').trim();
+    const thinking = clip(g.thinking.join('\n'), 4000);
+    if (!text && !thinking && !g.tools.length) continue;
+    cache.entries.set(mid, {
+      id: mid, role: 'assistant', text, thinking: thinking || undefined, tools: g.tools,
+      timestamp: ts, model: g.model || undefined,
+    });
+    cache.order.push(mid);
+    if (g.model) cache.model = g.model;
+  }
+}
+
+function sqlEsc(s) {
+  return String(s || '').replace(/'/g, "''");
+}
+
+async function readOpencodeDb({ c, run, q, file, caches, connKey, cwd }) {
   const key = `${connKey(c)}|opencode-db|${file.path}`;
-  // Pick newest session id, then dump last messages as JSON lines
-  const sql = [
-    `sqlite3 -json ${q(file.path)} "SELECT id, title, project_id, time_updated FROM session_v2 ORDER BY time_updated DESC LIMIT 1;" 2>/dev/null`,
-    `sqlite3 -json ${q(file.path)} "SELECT id, title, directory as project_id, time_updated FROM session ORDER BY time_updated DESC LIMIT 1;" 2>/dev/null`,
+  const db = q(file.path);
+  const cwdEsc = sqlEsc(cwd);
+  // Modern schema: session + message + part. Prefer session matching the pane cwd.
+  const sessSql = [
+    `sqlite3 -json ${db} "SELECT s.id AS id, s.title AS title, s.directory AS directory, COALESCE(s.time_updated, s.time_created) AS time_updated FROM session s LEFT JOIN project p ON p.id = s.project_id WHERE s.parent_id IS NULL ORDER BY CASE WHEN '${cwdEsc}' != '' AND (s.directory = '${cwdEsc}' OR p.worktree = '${cwdEsc}' OR s.directory LIKE '${cwdEsc}/%' OR p.worktree LIKE '${cwdEsc}/%') THEN 0 ELSE 1 END, COALESCE(s.time_updated, s.time_created) DESC LIMIT 1;" 2>/dev/null`,
+    // Older / alternate table name
+    `sqlite3 -json ${db} "SELECT id, title, project_id, time_updated FROM session_v2 ORDER BY time_updated DESC LIMIT 1;" 2>/dev/null`,
+    `sqlite3 -json ${db} "SELECT id, title, directory as project_id, time_updated FROM session ORDER BY time_updated DESC LIMIT 1;" 2>/dev/null`,
   ].join('\n');
-  const sessOut = await run(c, sql);
+  const sessOut = await run(c, sessSql);
   let sess;
   try {
     const rows = JSON.parse(sessOut.stdout.trim().split('\n').filter(Boolean).pop() || 'null');
     sess = Array.isArray(rows) ? rows[0] : rows;
   } catch { sess = null; }
   if (!sess?.id) return { found: false };
+  const sid = sqlEsc(sess.id);
 
-  const msgSql = `sqlite3 -json ${q(file.path)} "SELECT id, type, seq, data FROM session_message WHERE session_id='${String(sess.id).replace(/'/g, "''")}' ORDER BY seq ASC LIMIT 400;" 2>/dev/null`;
-  const msgOut = await run(c, msgSql);
   const cache = emptyCache();
   cache.name = sess.title || null;
+
+  // Modern: join message ↔ part
+  const partSql = `sqlite3 -json ${db} "SELECT m.id AS mid, m.time_created AS t, json_extract(m.data,'$.role') AS role, COALESCE(json_extract(m.data,'$.modelID'), json_extract(m.data,'$.model')) AS model, pt.id AS pid, json_extract(pt.data,'$.type') AS ptype, COALESCE(json_extract(pt.data,'$.text'), json_extract(pt.data,'$.content')) AS text, COALESCE(json_extract(pt.data,'$.name'), json_extract(pt.data,'$.tool'), json_extract(pt.data,'$.state.name')) AS tool_name, COALESCE(json_extract(pt.data,'$.input'), json_extract(pt.data,'$.state.input')) AS tool_input, COALESCE(json_extract(pt.data,'$.output'), json_extract(pt.data,'$.result'), json_extract(pt.data,'$.state.output')) AS tool_output FROM message m LEFT JOIN part pt ON pt.message_id = m.id WHERE m.session_id='${sid}' ORDER BY m.time_created, pt.time_created LIMIT 800;" 2>/dev/null`;
+  const partOut = await run(c, partSql);
   try {
-    const rows = JSON.parse(msgOut.stdout.trim() || '[]');
-    for (const row of rows) {
-      let data = row.data;
-      if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch { data = { text: data }; }
+    const rows = JSON.parse(partOut.stdout.trim() || '[]');
+    if (Array.isArray(rows) && rows.length) ingestOpencodeDbRows(cache, rows);
+  } catch { /* try legacy below */ }
+
+  // Legacy: session_message blob rows
+  if (!cache.order.length) {
+    const msgSql = `sqlite3 -json ${db} "SELECT id, type, seq, data FROM session_message WHERE session_id='${sid}' ORDER BY seq ASC LIMIT 400;" 2>/dev/null`;
+    const msgOut = await run(c, msgSql);
+    try {
+      const rows = JSON.parse(msgOut.stdout.trim() || '[]');
+      for (const row of rows) {
+        let data = row.data;
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch { data = { text: data }; }
+        }
+        ingestOpencodeMessage(cache, { id: row.id, type: row.type, data });
       }
-      ingestOpencodeMessage(cache, { id: row.id, type: row.type, data });
-    }
-  } catch { return { found: false }; }
+    } catch { return { found: false }; }
+  }
+
   caches.set(key, cache);
   if (!cache.order.length) return { found: false };
   return { found: true, file: sess.id, ...conversationFromCache(cache) };
@@ -568,13 +692,17 @@ const AUTH = {
 
 module.exports = {
   readChat,
+  readOpencodeDb,
   pickByMtime,
+  pickOpencodeStorage,
   encodeClaudeProject,
   encodeDashWorkspace,
   unwrapAgentPrompt,
   ingestClaude,
   ingestCodex,
   ingestGemini,
+  ingestOpencodeMessage,
+  ingestOpencodeDbRows,
   conversationFromCache,
   emptyCache,
   AUTH,

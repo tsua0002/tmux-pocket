@@ -246,6 +246,80 @@ test('unwrapAgentPrompt peels Cursor cloud <timestamp>/<user_query> wrappers', (
   assert.ok(conv.messages[0].ts);
 });
 
+test('pickOpencodeStorage prefers SQLite DB over legacy JSON', () => {
+  const out = [
+    'now 1700000100 age 10',
+    'cwd /home/u/proj',
+    'f 1700000090 120 /home/u/.local/share/opencode/storage/session/p/ses_old.json',
+    'f 1700000080 4096 /home/u/.local/share/opencode/opencode.db',
+  ].join('\n');
+  const { file, cwd, files } = agentChat.pickOpencodeStorage(out);
+  assert.strictEqual(cwd, '/home/u/proj');
+  assert.match(file.path, /opencode\.db$/);
+  assert.ok(files.length >= 2);
+});
+
+test('ingestOpencodeDbRows maps message/part rows like the phone chat', () => {
+  const cache = agentChat.emptyCache();
+  agentChat.ingestOpencodeDbRows(cache, [
+    { mid: 'msg_u', t: 1700000000, role: 'user', ptype: 'text', text: 'Hello' },
+    { mid: 'msg_a', t: 1700000001, role: 'assistant', model: 'opencode/big-pickle', ptype: 'reasoning', text: 'greet briefly' },
+    { mid: 'msg_a', t: 1700000001, role: 'assistant', ptype: 'text', text: 'Hello! How can I help you today?' },
+    {
+      mid: 'msg_a', t: 1700000001, role: 'assistant', ptype: 'tool', pid: 'prt_1',
+      tool_name: 'models', tool_input: '{"list":true}', tool_output: 'Big Pickle',
+    },
+  ]);
+  const conv = agentChat.conversationFromCache(cache);
+  assert.strictEqual(conv.messages.length, 2);
+  assert.strictEqual(conv.messages[0].text, 'Hello');
+  assert.strictEqual(conv.messages[1].text, 'Hello! How can I help you today?');
+  assert.strictEqual(conv.messages[1].thinking, 'greet briefly');
+  assert.strictEqual(conv.messages[1].tools[0].name, 'models');
+  assert.strictEqual(conv.messages[1].tools[0].output, 'Big Pickle');
+  assert.strictEqual(conv.model, 'opencode/big-pickle');
+  assert.ok(conv.messages[0].ts);
+});
+
+test('readOpencodeDb reads modern session/message/part SQLite', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-db-'));
+  const dbPath = path.join(dir, 'opencode.db');
+  const sql = `
+CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
+CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, title TEXT, directory TEXT, time_created INTEGER, time_updated INTEGER);
+CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+INSERT INTO project VALUES ('p1', '/tmp/proj');
+INSERT INTO session VALUES ('ses_demo', 'p1', NULL, 'Demo', '/tmp/proj', 1700000000000, 1700000001000);
+INSERT INTO message VALUES ('msg_u', 'ses_demo', 1700000000000, '{"role":"user"}');
+INSERT INTO part VALUES ('prt_u', 'msg_u', 'ses_demo', 1700000000000, '{"type":"text","text":"Hello"}');
+INSERT INTO message VALUES ('msg_a', 'ses_demo', 1700000001000, '{"role":"assistant","modelID":"opencode/big-pickle"}');
+INSERT INTO part VALUES ('prt_t', 'msg_a', 'ses_demo', 1700000001000, '{"type":"reasoning","text":"wave"}');
+INSERT INTO part VALUES ('prt_a', 'msg_a', 'ses_demo', 1700000001100, '{"type":"text","text":"Hello! How can I help you today?"}');
+`;
+  require('node:child_process').execFileSync('sqlite3', [dbPath], { input: sql });
+  const run = async (_c, script) => {
+    const r = require('node:child_process').spawnSync('bash', ['-lc', script], {
+      encoding: 'utf8', maxBuffer: 20 << 20,
+    });
+    return { code: r.status || 0, stdout: r.stdout || '', stderr: r.stderr || '' };
+  };
+  const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+  const hit = await agentChat.readOpencodeDb({
+    c: {}, run, q,
+    file: { path: dbPath, size: fs.statSync(dbPath).size, mtime: Date.now() / 1000 },
+    caches: new Map(),
+    connKey: () => 'test',
+    cwd: '/tmp/proj',
+  });
+  assert.strictEqual(hit.found, true);
+  assert.strictEqual(hit.messages[0].text, 'Hello');
+  assert.strictEqual(hit.messages[1].text, 'Hello! How can I help you today?');
+  assert.strictEqual(hit.messages[1].thinking, 'wave');
+  assert.strictEqual(hit.model, 'opencode/big-pickle');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('ingestClaude maps user/assistant/thinking/tools like the phone chat', () => {
   const cache = agentChat.emptyCache();
   const lines = [

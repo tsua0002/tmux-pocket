@@ -1044,9 +1044,10 @@ const Sim = (() => {
     { role: 'agent', text: 'pi, CodeAF, Claude Code, Codex, Gemini CLI et OpenCode partagent le même contrat messages (texte, réflexion, outils).' },
   ] });
   mk('main', 'opencode', 'agent', { style: 'pi', cmd: 'opencode', items: [
-    { role: 'user', text: 'Ouvre une session OpenCode' },
-    { role: 'agent', text: 'Session prête. Le chat lit storage_v2 / SQLite côté bridge.',
-      tools: [{ name: 'read', args: '{"path":"bridge/agent-chat.js"}', output: 'module.exports = { readChat, AUTH, KINDS }', done: true }] },
+    { role: 'user', text: 'Hello' },
+    { role: 'agent', text: 'Hello! How can I help you today?',
+      thinking: 'Greet, then offer models/tools.',
+      tools: [{ name: 'models', args: '{"list":true}', output: 'Big Pickle · opencode/big-pickle', done: true }] },
   ] });
   mk('main', 'htop', 'htop');
   mk('infra', 'api-logs', 'logs');
@@ -3610,8 +3611,8 @@ const isBlockRule = (l) => {
   return t.length >= 6 && [...t].every((c) => BLOCK_CH.test(c));
 };
 const isRuleLine = (l) => RULE.test(l) || isBlockRule(l);
-/** Gemini / Cursor / Ink chrome that must not leak into the chat fallback. */
-const TUI_CHROME = /^(?:Shift\+Tab to accept|Type your message or @|Tips for getting started|Gemini CLI v[\d.]+|workspace\s*\([^)]*\)|\/model\b|no sandbox\b|sandbox\s*$|Auto\s*$|~\s*$|\?\s*$|⚠?\s*Workspace Trust Required|Cursor Agent can execute|Do you trust the contents|\[a\]\s*Trust this workspace|\[q\]\s*Quit|⌛?\s*Trusting workspace|Cursor Agent(?:\s+v[\w.-]+)?\s*$|v?\d{4}\.\d{2}\.\d{2}-[\w]+\s*$|Tip:\s*Hit shift\+tab|\/home\/\S+\s*$)/i;
+/** Gemini / Cursor / OpenCode / Ink chrome that must not leak into the chat fallback. */
+const TUI_CHROME = /^(?:Shift\+Tab to accept|Type your message or @|Tips for getting started|Gemini CLI v[\d.]+|workspace\s*\([^)]*\)|\/model\b|no sandbox\b|sandbox\s*$|Auto\s*$|~\s*$|\?\s*$|⚠?\s*Workspace Trust Required|Cursor Agent can execute|Do you trust the contents|\[a\]\s*Trust this workspace|\[q\]\s*Quit|⌛?\s*Trusting workspace|Cursor Agent(?:\s+v[\w.-]+)?\s*$|v?\d{4}\.\d{2}\.\d{2}-[\w]+\s*$|Tip:\s*Hit shift\+tab|\/home\/\S+\s*$|New session\s*\+?|Build\s*·|Thought\s*·|\+?\s*Thought\s*·|~\s*[\d.,]+\s*[KMB]?\s*\(\d+%\)\s*$|[\d.]+\s*tok\/s|opencode\s*$)/i;
 const MARK = /^\s*([●⏺›•>❯$#⎿└├*-]|\d+\.)\s/;
 const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✳✶✢·✦]\s*(Working|Thinking|Running|Generating|Esc to|Pondering|Waiting)|Trusting workspace/i;
 const LAUNCH = /(?:\$|#|%|❯)\s*(pi|codeaf|claude|codex|aider|gemini|opencode|amp|goose|crush|qwen|cursor-agent|agent|copilot)\b/;
@@ -3648,6 +3649,10 @@ function cleanScreen(screen, width = 80) {
       const urlOpen = /https?:\/\/\S*$/i.test(prev.text);
       if (urlOpen && AUTH_URL_STOP.test(t)) {
         out.push({ text: l, wide: l.length >= width - 16 });
+      } else if (/[A-Za-z0-9]-$/.test(prev.text) && /^[a-z0-9]/.test(t)) {
+        // Terminal hard-wrap often inserts a hyphen mid-token (opencode/big- + pickle).
+        prev.text = `${prev.text.replace(/-$/, '')}${t}`;
+        prev.wide = l.length >= width - 16;
       } else {
         prev.text += (urlOpen ? t.replace(/\s+/g, '') : ` ${t}`);
         prev.wide = l.length >= width - 16;
@@ -3800,7 +3805,7 @@ function drawChat() {
   let html;
   if (W.profile.chat && W.pi) html = renderPi();
   else if (W.profile.chat && W.piState === 'unknown') html = '<div class="empty">Chargement de la conversation…</div>';
-  else html = (W.profile.chat ? `<div class="pnote">Session ${esc(W.profile.id)} introuvable : vue de l'écran</div>` : '') + renderGeneric();
+  else html = (W.profile.chat ? `<div class="pnote">Transcript ${esc(W.profile.id)} indisponible — vue écran nettoyée</div>` : '') + renderGeneric();
   if (html === W.last) return;
   const box = $('#chatbox');
   const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
