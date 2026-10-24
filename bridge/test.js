@@ -345,7 +345,7 @@ test('ingestOpencodeDbRows maps message/part rows like the phone chat', () => {
   assert.ok(conv.messages[0].ts);
 });
 
-test('readOpencodeDb reads modern session/message/part SQLite', async () => {
+test('readOpencodeDb reads v1 session/message/part SQLite', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-db-'));
   const dbPath = path.join(dir, 'opencode.db');
   const sql = `
@@ -382,6 +382,97 @@ INSERT INTO part VALUES ('prt_a', 'msg_a', 'ses_demo', 1700000001100, '{"type":"
   assert.strictEqual(hit.messages[1].thinking, 'wave');
   assert.strictEqual(hit.model, 'opencode/big-pickle');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('readOpencodeDb reads OpenCode 2.x session_v2 + session_message', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-v2-'));
+  const dbPath = path.join(dir, 'opencode.db');
+  const sqlLit = (v) => `'${JSON.stringify(v).replace(/'/g, "''")}'`;
+  const asstPayload = {
+    type: 'assistant',
+    model: { providerID: 'opencode', id: 'big-pickle' },
+    content: [
+      { type: 'reasoning', text: 'check files' },
+      { type: 'text', text: 'Here is your config.' },
+      {
+        type: 'tool', id: 't1', name: 'bash',
+        state: {
+          status: 'completed',
+          input: { command: 'cat service.json' },
+          content: [{ type: 'text', text: '{"ok":true}' }],
+        },
+      },
+    ],
+    time: { created: 1700000001000 },
+  };
+  // Stale v1 session table must NOT win over session_v2 (prod bug → screen dump in Chat).
+  const sql = `
+CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
+CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, title TEXT, directory TEXT, time_created INTEGER, time_updated INTEGER);
+CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+CREATE TABLE session_v2 (
+  id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, directory TEXT, title TEXT, model TEXT,
+  time_created INTEGER, time_updated INTEGER, time_archived INTEGER
+);
+CREATE TABLE session_message (
+  id TEXT PRIMARY KEY, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT
+);
+INSERT INTO project VALUES ('p_old', '/tmp/other');
+INSERT INTO session VALUES ('ses_stale', 'p_old', NULL, 'Stale', '/tmp/other', 1, 9999999999999);
+INSERT INTO message VALUES ('msg_stale', 'ses_stale', 1, '{"role":"user"}');
+INSERT INTO part VALUES ('prt_stale', 'msg_stale', 'ses_stale', 1, '{"type":"text","text":"wrong session"}');
+INSERT INTO session_v2 VALUES ('ses_live', 'p1', NULL, '/tmp/proj', 'Live', ${sqlLit({ providerID: 'opencode', id: 'big-pickle' })}, 1700000000000, 1700000002000, NULL);
+INSERT INTO session_message VALUES ('msg_u', 'ses_live', 'user', 1, 1700000000000, 1700000000000, ${sqlLit({ type: 'user', text: 'list config', time: { created: 1700000000000 } })});
+INSERT INTO session_message VALUES ('msg_a', 'ses_live', 'assistant', 2, 1700000001000, 1700000001000, ${sqlLit(asstPayload)});
+INSERT INTO session_message VALUES ('msg_sh', 'ses_live', 'shell', 3, 1700000002000, 1700000002000, ${sqlLit({ type: 'shell', command: 'uname', output: 'Linux', time: { created: 1700000002000 } })});
+`;
+  require('node:child_process').execFileSync('sqlite3', [dbPath], { input: sql });
+  const run = async (_c, script) => {
+    const r = require('node:child_process').spawnSync('bash', ['-lc', script], {
+      encoding: 'utf8', maxBuffer: 20 << 20,
+    });
+    return { code: r.status || 0, stdout: r.stdout || '', stderr: r.stderr || '' };
+  };
+  const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+  const hit = await agentChat.readOpencodeDb({
+    c: {}, run, q,
+    file: { path: dbPath, size: fs.statSync(dbPath).size, mtime: Date.now() / 1000 },
+    caches: new Map(),
+    connKey: () => 'test',
+    cwd: '/tmp/proj',
+  });
+  assert.strictEqual(hit.found, true);
+  assert.strictEqual(hit.file, 'ses_live');
+  assert.ok(!hit.messages.some((m) => m.text === 'wrong session'), 'must ignore stale v1 session');
+  assert.strictEqual(hit.messages[0].role, 'user');
+  assert.strictEqual(hit.messages[0].text, 'list config');
+  const asst = hit.messages.find((m) => m.role === 'assistant');
+  assert.ok(asst);
+  assert.strictEqual(asst.text, 'Here is your config.');
+  assert.strictEqual(asst.thinking, 'check files');
+  assert.strictEqual(asst.tools[0].name, 'bash');
+  assert.match(asst.tools[0].output, /ok/);
+  assert.strictEqual(hit.model, 'opencode/big-pickle');
+  assert.ok(hit.messages.some((m) => m.role === 'bash' && m.text === 'uname'));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('ingestOpencodeMessage maps v2 tool state.content', () => {
+  const cache = agentChat.emptyCache();
+  agentChat.ingestOpencodeMessage(cache, {
+    id: 'a1', type: 'assistant',
+    data: {
+      type: 'assistant',
+      content: [{
+        type: 'tool', id: 't1', name: 'read',
+        state: { status: 'completed', input: { path: '/tmp/a' }, content: [{ type: 'text', text: 'file body' }] },
+      }],
+    },
+  });
+  const conv = agentChat.conversationFromCache(cache);
+  assert.strictEqual(conv.messages[0].tools[0].output, 'file body');
+  assert.strictEqual(conv.messages[0].tools[0].done, true);
 });
 
 test('ingestClaude maps user/assistant/thinking/tools like the phone chat', () => {
