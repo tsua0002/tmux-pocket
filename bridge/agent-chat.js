@@ -19,6 +19,24 @@ const textOf = (content) => {
   }).filter(Boolean).join('\n');
 };
 
+/** Cursor (and cloud-agent) transcripts wrap prompts in XML; peel them for the phone chat. */
+function unwrapAgentPrompt(text, timestamp) {
+  let t = String(text || '');
+  let ts = timestamp;
+  const tm = t.match(/<timestamp>\s*([\s\S]*?)\s*<\/timestamp>/i);
+  if (tm) {
+    const raw = tm[1].replace(/\s+/g, ' ').trim();
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) ts = new Date(parsed).toISOString();
+    else if (ts == null || ts === '') ts = raw;
+    t = t.replace(/<timestamp>\s*[\s\S]*?\s*<\/timestamp>\s*/gi, '');
+  }
+  const uq = t.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/i);
+  if (uq) t = uq[1];
+  else t = t.replace(/<\/?(?:user_query|timestamp)(?:\s[^>]*)?>/gi, '');
+  return { text: t.replace(/^\s+|\s+$/g, ''), timestamp: ts };
+}
+
 function encodeClaudeProject(ws) {
   // Claude Code: /Users/me/proj → -Users-me-proj
   let e = String(ws || '').replace(/\/+/g, '/');
@@ -203,9 +221,10 @@ function ingestClaude(cache, line) {
   }
 
   if (e.type === 'user') {
-    const text = textOf(blocks.filter((b) => b.type === 'text' || !b.type));
+    const raw = textOf(blocks.filter((b) => b.type === 'text' || !b.type));
+    const { text, timestamp } = unwrapAgentPrompt(raw, e.timestamp);
     if (!text.trim()) return;
-    pushMsg(cache, { id: e.uuid || undefined, role: 'user', text, timestamp: e.timestamp });
+    pushMsg(cache, { id: e.uuid || undefined, role: 'user', text, timestamp });
     return;
   }
 
@@ -552,6 +571,7 @@ module.exports = {
   pickByMtime,
   encodeClaudeProject,
   encodeDashWorkspace,
+  unwrapAgentPrompt,
   ingestClaude,
   ingestCodex,
   ingestGemini,

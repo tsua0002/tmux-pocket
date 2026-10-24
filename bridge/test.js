@@ -229,6 +229,23 @@ test('ingestClaude accepts Cursor CLI role-based JSONL', () => {
   assert.strictEqual(conv.messages[1].text, 'Hi from Cursor Agent');
 });
 
+test('unwrapAgentPrompt peels Cursor cloud <timestamp>/<user_query> wrappers', () => {
+  const wrapped = '<timestamp>Saturday, Oct 24, 2026, 12:03 AM (UTC)</timestamp><user_query>Hello ?</user_query>';
+  const { text, timestamp } = agentChat.unwrapAgentPrompt(wrapped);
+  assert.strictEqual(text, 'Hello ?');
+  assert.ok(timestamp);
+  assert.ok(!Number.isNaN(Date.parse(timestamp)));
+
+  const cache = agentChat.emptyCache();
+  agentChat.ingestClaude(cache, JSON.stringify({
+    role: 'user', id: 'u1',
+    message: { content: [{ type: 'text', text: wrapped }] },
+  }));
+  const conv = agentChat.conversationFromCache(cache);
+  assert.strictEqual(conv.messages[0].text, 'Hello ?');
+  assert.ok(conv.messages[0].ts);
+});
+
 test('ingestClaude maps user/assistant/thinking/tools like the phone chat', () => {
   const cache = agentChat.emptyCache();
   const lines = [

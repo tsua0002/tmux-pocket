@@ -409,10 +409,23 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .mrow { position: relative; margin: 0 0 12px; touch-action: pan-y; overflow: hidden; }
 .mrow .mslide { transition: transform .18s cubic-bezier(.2,.8,.2,1); will-change: transform; }
 .mrow.dragging .mslide { transition: none; }
-.mrow .mts { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
-  font: 550 11px/1.2 var(--mono); color: var(--muted); opacity: 0; pointer-events: none; white-space: nowrap;
-  transition: opacity .15s ease; letter-spacing: .01em; }
+.mrow .mts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font: 650 12px/1.2 var(--mono); color: var(--text); opacity: 0; pointer-events: none; white-space: nowrap;
+  transition: opacity .15s ease; letter-spacing: .02em;
+  text-shadow: 0 0 10px var(--bg), 0 0 3px var(--bg); }
 .mrow.revealed .mts, .mrow.dragging .mts { opacity: 1; }
+/* User bubbles sit on the right — show the time under the bubble so the text isn’t clipped. */
+.mrow:has(.msg.user) { overflow: visible; }
+.mrow:has(.msg.user) .mslide { transition: none; }
+.mrow:has(.msg.user).revealed .mslide,
+.mrow:has(.msg.user).dragging .mslide { transform: none !important; }
+.mrow:has(.msg.user) .mts {
+  position: static; display: block; transform: none; text-align: right;
+  margin: 5px 4px 0; max-height: 0; overflow: hidden; opacity: 0;
+  color: var(--text-2); text-shadow: none;
+  transition: opacity .15s ease, max-height .15s ease; }
+.mrow:has(.msg.user).revealed .mts,
+.mrow:has(.msg.user).dragging .mts { opacity: 1; max-height: 1.5em; }
 
 /* dock: suggestions + shortcuts stay visible; keybar folds away. Chat hides the keybar entirely. */
 .dock { flex: none; margin-top: auto; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--line); z-index: 5; }
@@ -1014,7 +1027,10 @@ const Sim = (() => {
     { role: 'agent', text: 'Aujourd\'hui : bridge SSH (ssh2), chat natif Claude/Codex/Gemini/OpenCode, et login CLI depuis l’app.' },
   ] });
   mk('main', 'cursor', 'agent', { style: 'pi', cmd: 'agent', items: [
-    { role: 'user', text: 'Ouvre une session Cursor Agent' },
+    // Mimic cloud-agent JSONL wrappers — chat must peel these for display.
+    { role: 'user', text: '<timestamp>Saturday, Oct 24, 2026, 12:03 AM (UTC)</timestamp><user_query>Hello ?</user_query>' },
+    { role: 'agent', text: "I'm **Auto**, an agent router designed by Cursor." },
+    { role: 'user', text: '<timestamp>Saturday, Oct 24, 2026, 12:04 AM (UTC)</timestamp><user_query>What\'s your model?</user_query>' },
     { role: 'agent', text: 'CLI `agent` prêt. Login via `agent login` ; le chat lit `~/.cursor/projects/…/agent-transcripts/*.jsonl`.' },
   ] });
   mk('main', 'codex', 'agent', { style: 'pi', cmd: 'codex', items: [
@@ -1067,7 +1083,8 @@ const Sim = (() => {
     }
     for (const it of w.items) {
       if (it.role === 'user') {
-        out.push(...wrap(it.text, cols - 2, claude ? `${D}> ` : `${bg(236)}${fg(252)} `, claude ? `${D}  ` : `${bg(236)}${fg(252)} `).map((l) => pad(l, cols) + R), '');
+        const shown = displayUserText(it.text) || it.text;
+        out.push(...wrap(shown, cols - 2, claude ? `${D}> ` : `${bg(236)}${fg(252)} `, claude ? `${D}  ` : `${bg(236)}${fg(252)} `).map((l) => pad(l, cols) + R), '');
       } else if (it.role === 'tool') {
         out.push(...wrap(it.text, cols - 2, claude ? `${fg(70)}●${R} ${B}` : `${fg(244)}› ${fg(110)}`, '  ').map((l) => l + R));
         if (it.sub) out.push(`  ${D}⎿  ${it.sub}${R}`);
@@ -1347,7 +1364,11 @@ const Sim = (() => {
       const t0 = Date.now() - items.length * 180000;
       const messages = items.map((it, i) => {
         const ts = new Date(t0 + i * 180000).toISOString();
-        if (it.role === 'user') return { id: `m${i}`, role: 'user', text: it.text, ts };
+        if (it.role === 'user') {
+          const peeled = displayUserText(it.text);
+          const embedded = userMsgTs({ text: it.text, ts: null });
+          return { id: `m${i}`, role: 'user', text: peeled || it.text, ts: embedded || ts };
+        }
         if (it.role === 'tool') {
           return { id: `m${i}`, role: 'assistant', text: '', ts, tools: [{ id: `t${i}`, name: it.text.split(/[( ]/)[0].toLowerCase(),
             args: JSON.stringify({ command: it.text.replace(/^\w+[( ]/, '').replace(/\)$/, '') }), output: it.sub || '', done: true }] };
@@ -2005,7 +2026,9 @@ function previewOf(w, n) {
   const raw = lastPreviews[`${w.session}:${w.window}`] || [];
   const want = n ?? TILE_LINES[tileMeta(w).size] ?? 3;
   const lines = want > 0 && raw.length
-    ? cleanScreen(raw.join('\n'), w.width || 80).filter((l) => l.trim()).slice(-want)
+    ? cleanScreen(raw.join('\n'), w.width || 80)
+      .map((l) => displayUserText(l) || l.replace(/<\/?(?:timestamp|user_query)(?:\s[^>]*)?>/gi, '').trim())
+      .filter((l) => l.trim()).slice(-want)
     : [];
   return { status: statusOf(raw), lines };
 }
@@ -2898,7 +2921,8 @@ const PROFILES = [
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'modèle', h: '/model', cmd: '/model', term: true }, { l: 'compact', h: '/compact', cmd: '/compact' },
     { l: 'cost', h: '/cost', cmd: '/cost' }, { l: '/', h: 'commande', t: '/' }] },
-  { id: 'cursor', match: /^(agent|cursor-agent)$/i, chat: 'cursor', stop: 'Escape', ctx: [
+  // preferTerm: Cursor's native transcript is noisy (XML wrappers); TUI is the better default.
+  { id: 'cursor', match: /^(agent|cursor-agent)$/i, chat: 'cursor', preferTerm: true, stop: 'Escape', ctx: [
     { l: 'stop', h: 'esc', k: 'Escape' }, { l: 'effacer', h: '^C', k: 'C-c' },
     { l: 'oui', h: 'y', t: 'y' }, { l: 'non', h: 'n', t: 'n' },
     { l: 'plan', h: '/plan', cmd: '/plan', term: true }, { l: 'ask', h: '/ask', cmd: '/ask', term: true },
@@ -3056,8 +3080,12 @@ function loadWindow(win) {
   W.profile = profileOf(win);
   try { W.sent = JSON.parse(localStorage.getItem(`tmuxpocket.sent.${winKey()}`)) || []; } catch { W.sent = []; }
   // Native chat agents (pi, codeaf) open in Chat — their TUI chrome is dense on a phone.
-  // Everything else starts in Terminal; WeeChat always stays there for the buffer bar.
-  W.mode = state.modes[winKey()] || (W.profile.chat ? 'chat' : 'term');
+  // preferTerm agents (Cursor) stay on TUI until the user explicitly picks Chat.
+  // WeeChat always stays in Terminal for the buffer bar.
+  const savedMode = state.modes[winKey()];
+  const userPicked = !!state.modeUser?.[winKey()];
+  if (savedMode && (userPicked || !W.profile.preferTerm)) W.mode = savedMode;
+  else W.mode = W.profile.preferTerm ? 'term' : (W.profile.chat ? 'chat' : 'term');
   if (W.profile.buffers) W.mode = 'term';
   $('#mode-seg').style.display = W.profile.buffers || W.profile.id === 'shell' ? 'none' : '';
   W.status = 'idle'; setStatus('idle');
@@ -3182,8 +3210,10 @@ function leaveWindow() {
   if (W.fitted) api(srv, 'resize', { target: W.win, cols: 0 }).catch(() => {});
   W.fitted = false;
 }
-function setMode(m) {
-  W.mode = m; state.modes[winKey()] = m; save();
+function setMode(m, { user = false } = {}) {
+  W.mode = m; state.modes[winKey()] = m;
+  if (user) state.modeUser = { ...state.modeUser, [winKey()]: true };
+  save();
   $('#v-window').dataset.mode = m;
   kbApply(m === 'term' && kbWanted());
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
@@ -3211,7 +3241,7 @@ function setMode(m) {
   // The terminal's size is only known once it is shown.
   else if (nav.length && nav[nav.length - 1].id === 'v-window') requestAnimationFrame(() => fitToPhone().then(tick));
 }
-$$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+$$('#mode-seg button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode, { user: true })));
 
 // Resize the tmux window so TUIs re-layout for a phone screen.
 const LINE_H = 1.25, FONT = 12;
@@ -3629,23 +3659,42 @@ function cleanScreen(screen, width = 80) {
 const working = () => !!W.screen && SPIN.test(W.screen.screen.replace(ANSI_RE, ''));
 /** Cursor uses → ; Claude/pi use >❯›. */
 const stripPrompt = (l) => l.replace(/^\s*[>❯›→]\s*/, '').trim();
-const MSG_TS_W = 58;
+const MSG_TS_W = 72;
 /** Format a transcript timestamp for the swipe-reveal label (empty if unknown). */
 function fmtMsgTs(ts) {
   if (ts == null || ts === '') return '';
   let d;
   if (typeof ts === 'number') d = new Date(ts < 1e12 ? ts * 1000 : ts);
-  else d = new Date(ts);
+  else {
+    const raw = String(ts).replace(/\s*\((?:UTC|GMT(?:[+-]\d+)?)\)\s*$/i, '').trim();
+    d = new Date(raw);
+    if (Number.isNaN(d.getTime())) d = new Date(ts);
+  }
   if (Number.isNaN(d.getTime())) return '';
   const now = new Date();
   const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
   try {
+    // 24h keeps the swipe label short and readable on a phone.
     return sameDay
-      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-      : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+      : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
   } catch {
     return sameDay ? d.toISOString().slice(11, 16) : d.toISOString().slice(0, 16).replace('T', ' ');
   }
+}
+/** Peel cloud-agent XML wrappers if a transcript still has them (bridge also strips). */
+function displayUserText(text) {
+  let t = String(text || '');
+  const uq = t.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/i);
+  if (uq) t = uq[1];
+  t = t.replace(/<timestamp>\s*[\s\S]*?\s*<\/timestamp>\s*/gi, '');
+  t = t.replace(/<\/?(?:user_query|timestamp)(?:\s[^>]*)?>/gi, '');
+  return t.replace(/^\s+|\s+$/g, '');
+}
+function userMsgTs(m) {
+  if (m?.ts != null && m.ts !== '') return m.ts;
+  const tm = String(m?.text || '').match(/<timestamp>\s*([\s\S]*?)\s*<\/timestamp>/i);
+  return tm ? tm[1].replace(/\s+/g, ' ').trim() : null;
 }
 /** Wrap a bubble so a slight left swipe reveals the time when available. */
 function wrapTs(inner, ts, id) {
@@ -3680,13 +3729,19 @@ function renderPi() {
   const msgs = W.pi.messages;
   const live = working();
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
-  if (W.pending && lastUser && lastUser.text.trim() === W.pending.trim()) W.pending = null;
+  if (W.pending && lastUser) {
+    const got = displayUserText(lastUser.text).trim();
+    if (got === W.pending.trim() || lastUser.text.trim() === W.pending.trim()) W.pending = null;
+  }
   const who = ({ pi: 'pi', codeaf: 'codeaf', claude: 'Claude', cursor: 'Cursor', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' })[W.profile?.id] || 'l’agent';
   let html = W.pi.total > msgs.length ? `<div class="pnote">${W.pi.total - msgs.length} messages plus anciens</div>` : '';
   if (!msgs.length && !W.pending) html += `<div class="empty"><b>Nouvelle conversation ${esc(who)}</b>Écris ton premier message.</div>`;
   for (const m of msgs) {
-    if (m.role === 'user') html += wrapTs(`<div class="msg user">${esc(m.text)}</div>`, m.ts, m.id);
-    else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
+    if (m.role === 'user') {
+      const shown = displayUserText(m.text);
+      if (!shown) continue;
+      html += wrapTs(`<div class="msg user">${esc(shown)}</div>`, userMsgTs(m), m.id);
+    } else if (m.role === 'note') html += `<div class="pnote">${esc(m.text)}</div>`;
     else if (m.role === 'bash') html += wrapTs(`<div class="pmsg assistant">${fold(m.id, 'tool', `$ ${esc(m.text)}`, `<pre>${esc(m.output || '')}</pre>`)}</div>`, m.ts, m.id);
     else if (m.role === 'assistant') {
       let body = '';
@@ -3705,7 +3760,7 @@ function renderPi() {
   if (live) {
     // While pi streams, the reply isn't in the session file yet: show what the screen has after the last prompt.
     const lines = cleanScreen(W.screen.screen, W.screen.width);
-    const anchor = W.pending || lastUser?.text || '';
+    const anchor = W.pending || displayUserText(lastUser?.text || '');
     let i = anchor ? lines.map(stripPrompt).lastIndexOf(anchor.trim().split('\n').pop().trim()) : -1;
     const partial = i >= 0 ? lines.slice(i + 1).join('\n').trim() : '';
     html += `<div class="pmsg assistant">${partial ? `<div class="text">${md(partial)}</div>` : ''}<span class="typing"><i></i><i></i><i></i></span></div>`;
@@ -4026,11 +4081,19 @@ input.addEventListener('input', () => {
   setStatus(W.status);
 });
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
+// iOS / soft keyboards often insert a line break without a preventable keydown Enter.
+input.addEventListener('beforeinput', (e) => {
+  if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+    e.preventDefault();
+    $('#composer').requestSubmit();
+  }
+});
 $('#composer').addEventListener('submit', async (e) => {
   e.preventDefault();
   touched();
   if ($('#send').classList.contains('stop')) return press({ k: W.profile.stop });
-  const text = input.value;
+  // Trailing \\n from a soft-keyboard Enter becomes a real newline in Cursor (LF ≈ Ctrl+J).
+  const text = input.value.replace(/\n+$/g, '').replace(/^\n+/g, '');
   input.value = ''; input.style.height = '44px';
   try {
     if (!text) return await api(srv, 'keys', { target: W.win, keys: ['Enter'] });
@@ -4042,6 +4105,8 @@ $('#composer').addEventListener('submit', async (e) => {
       W.last = ''; drawChat();
       $('#chatbox').scrollTop = $('#chatbox').scrollHeight;
     }
+    // text is already stripped of trailing soft-keyboard \\n; mid-message breaks stay
+    // (Cursor maps a literal LF to “insert newline”, then our Enter submits).
     await api(srv, 'send', { target: W.win, text, enter: true });
     tick();
   } catch (err) { toast(err.message); }
@@ -4076,7 +4141,7 @@ function kbPrefs() {
   if (!state.kb) state.kb = { layout: /^fr/i.test(navigator.language || '') ? 'azerty' : 'qwerty', alpha: 'glass', overlay: false, folded: false, use: {} };
   return state.kb;
 }
-const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
+const kbWanted = () => kbPrefs().use[W.profile.id] ?? ['pi', 'agent', 'codeaf', 'claude', 'cursor', 'codex', 'gemini', 'opencode'].includes(W.profile.id);
 const kbPad = () => (KBD.on && !kbPrefs().overlay ? $('#tkb').offsetHeight : 0);
 
 const ACCENTS = { e: 'éèêë', a: 'àâäæ', c: 'ç', u: 'ùûü', i: 'îï', o: 'ôöœ', y: 'ÿ', n: 'ñ', "'": '’"«»', '"': '«»“”',
