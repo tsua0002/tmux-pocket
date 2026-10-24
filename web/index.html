@@ -445,7 +445,8 @@ html[data-appearance="light"] .sheet-wrap { background: rgba(15,23,42,.28); }
 .suggest button:active { background: var(--surface-3); }
 .suggest button.pri { border-color: var(--line-2); background: var(--surface-3); font-weight: 650; }
 .suggest button.sec { color: var(--text-2); }
-.msg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; word-break: break-all; }
+.msg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px;
+  word-break: break-all; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; }
 .msg-link:active { color: var(--accent); text-decoration-color: var(--accent); }
 /* Device codes: tap-to-copy, looks like mono text — not a promo chip. */
 button.auth-code { display: inline; margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none;
@@ -1825,13 +1826,32 @@ function statusOf(lines) {
   const txt = lines.join('\n');
   return SPIN.test(txt) ? 'working' : WAIT_RE.test(txt) ? 'waiting' : 'idle';
 }
-const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve)/i;
+const AUTH_URL_STOP = /^(Enter|Please|Visit|Waiting|Paste|press |To |authorization code|Do you|Allow|Approve|Open |Go to|Navigate)/i;
+/** Strip TUI box/padding junk so hard-wrapped OAuth lines can be rejoined. */
+function stripUrlLineNoise(s) {
+  // Inline ANSI/box patterns — this helper is declared above the shared ANSI_RE/BOX_EDGE consts.
+  return String(s || '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g, '')
+    .replace(/^[\s│┃║|╭╮╰╯┌┐└┘]+|[\s│┃║|╭╮╰╯┌┐└┘]+$/g, '')
+    .replace(/[\u2500-\u257F]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 /** Strip prose accidentally glued onto an OAuth URL (e.g. …comEntertheauthorizationcode). */
 function sanitizeAuthUrl(u) {
   return String(u || '')
     .replace(/\s+/g, '')
-    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*)$/i, '')
-    .replace(/[.,;:!?)]+$/g, '');
+    .replace(/[│┃║]/g, '')
+    .replace(/(?:Enter(?:the)?authorizationcode:?|Pleasevisit.*|Waitingfor.*|Opentheurl.*)$/i, '')
+    .replace(/[.,;:!?）】»"'`]+$/g, '');
+}
+/** True if a compact string looks like a URL / query continuation. */
+function looksLikeUrlChunk(s) {
+  if (!s) return false;
+  if (/^https?:\/\//i.test(s)) return true;
+  if (/^[?&#/=%~._\-]./.test(s)) return true;
+  // Continuation of path/query after a hard wrap (no leading ?&)
+  return /^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(s) && /[=&#%/]/.test(s);
 }
 /** Terminal hard-wrap splits OAuth URLs across lines (and cleanScreen used to insert spaces).
  *  Reassemble from `https://` through query continuations into one usable URL. */
@@ -1839,25 +1859,27 @@ function healWrappedUrls(text) {
   const lines = String(text ?? '').split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = stripUrlLineNoise(lines[i]);
     const start = line.search(/https?:\/\//i);
-    if (start < 0) { out.push(line); continue; }
+    if (start < 0) { out.push(lines[i]); continue; }
     const before = line.slice(0, start);
     let raw = line.slice(start);
     let j = i + 1;
     while (j < lines.length) {
-      const n = lines[j].replace(/\s+$/, '').trim();
+      const n = stripUrlLineNoise(lines[j]);
       if (!n || AUTH_URL_STOP.test(n) || MARK.test(n)) break;
       const compact = n.replace(/\s+/g, '');
       // Prose line (several words, no query junk) — URL ended.
       if (/\s/.test(n) && !/[=&#%]/.test(n) && n.split(/\s+/).length >= 3) break;
-      if (!/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
+      if (!looksLikeUrlChunk(compact) && !/^[A-Za-z0-9%_\-./?=&#+:~@]+$/.test(compact)) break;
+      // Drop a soft-hyphen inserted by some TUI wraps (auth?redirec- + t_uri).
+      if (/[A-Za-z0-9]-$/.test(raw) && /^[a-z0-9]/.test(compact)) raw = raw.replace(/-$/, '');
       raw += compact;
       j++;
     }
     out.push(before + sanitizeAuthUrl(raw));
     // Keep the stop line (e.g. "Enter the authorization code:") as its own row.
-    if (j < lines.length && AUTH_URL_STOP.test(lines[j].trim())) {
+    if (j < lines.length && AUTH_URL_STOP.test(stripUrlLineNoise(lines[j]))) {
       out.push(lines[j]);
       j++;
     }
@@ -1872,6 +1894,8 @@ function authFromText(txt) {
   const urls = [...healed.matchAll(/https?:\/\/[^\s<>"'`)\]|]+/gi)]
     .map((m) => sanitizeAuthUrl(m[0]))
     .filter((u) => u.length > 20 && /https?:\/\//i.test(u))
+    // Prefer real login/OAuth URLs when several matches exist.
+    .sort((a, b) => Number(/oauth|authorize|login|device|auth/i.test(b)) - Number(/oauth|authorize|login|device|auth/i.test(a)) || b.length - a.length)
     .filter((u, i, a) => a.indexOf(u) === i)
     .slice(0, 3);
   const codes = [];
@@ -1883,7 +1907,11 @@ function authFromText(txt) {
   const wantsPaste = /paste|colle|enter (your )?(api[_ ]?key|token|code|secret)|one-time|verification code|Paste API token|authorization\s*code/i.test(healed);
   return { urls, codes: codes.slice(0, 3), wantsPaste };
 }
-/** URLs open; device codes tap-to-copy — no extra chrome. */
+/** Host label for chips — never truncate the real URL itself. */
+function authUrlHost(u) {
+  try { return new URL(u).host.replace(/^www\./, ''); } catch { return 'login'; }
+}
+/** URLs open; device codes tap-to-copy — full href always (truncated labels were copied broken on iOS). */
 function formatScreenText(raw) {
   const text = healWrappedUrls(raw);
   const parts = String(text ?? '').split(/(https?:\/\/[^\s<>"'`)\]|]+|\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b)/g);
@@ -1891,9 +1919,9 @@ function formatScreenText(raw) {
     if (i % 2 === 0) return esc(p);
     if (/^https?:\/\//i.test(p)) {
       const href = sanitizeAuthUrl(p);
-      // Long OAuth URLs: keep full href, show a readable head…tail label.
-      const label = href.length > 64 ? `${href.slice(0, 42)}…${href.slice(-14)}` : href;
-      return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+      // Full URL visible + dedicated copy control (selecting a head…tail label used to break login).
+      return `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>`
+        + ` <button type="button" class="auth-code" data-auth="copy" data-v="${esc(href)}" aria-label="Copier le lien">Copier</button>`;
     }
     return `<button type="button" class="auth-code" data-auth="copy" data-v="${esc(p)}" aria-label="Copier ${esc(p)}">${esc(p)}</button>`;
   }).join('');
@@ -3282,6 +3310,8 @@ async function tick() {
       W.screen = { ...c, screen: c.screen.join('\n') };
       drawTerm(c);
       if (W.profile.buffers) { parseBuffers(W.screen.screen); drawCtx(); }
+      // Login URLs often appear in TUI first — keep Ouvrir/Copier chips in sync every tick.
+      drawSuggest();
     } else if (W.profile.chat && W.piState !== 'missing') {
       // Native chat (pi / codeaf / claude / codex / gemini / opencode): session file every other tick.
       if (!W.pi || W.n % 2 === 0) {
@@ -3310,10 +3340,12 @@ async function tick() {
       W.screen = await api(srv, 'capture', { target: W.win });
       if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
+      drawSuggest();
     } else {
       W.screen = await api(srv, 'capture', { target: W.win, history: 400 });
       if (KBD.sentAt !== sentBefore || (KBD.on && kbBusy())) return;
       drawChat();
+      drawSuggest();
     }
   } catch (e) {
     toast(e.message);
@@ -4021,8 +4053,9 @@ function suggestFromScreen() {
   };
   const auth = authFromText(txt);
   for (const u of auth.urls) {
-    add('Ouvrir', { open: u, pri: true });
-    add('Lien', { copy: u, sec: true });
+    // Show host on the chip; the payload always carries the FULL url (never a head…tail label).
+    add(`Ouvrir ${authUrlHost(u)}`, { open: u, pri: true });
+    add('Copier le lien', { copy: u, sec: true });
   }
   for (const code of auth.codes) {
     const short = code.length > 12 ? `${code.slice(0, 9)}…` : code;
@@ -4044,14 +4077,23 @@ function suggestFromScreen() {
 }
 async function runAuthAction(kind, value) {
   if (kind === 'open' && value) {
-    window.open(value, '_blank', 'noopener,noreferrer');
+    const href = sanitizeAuthUrl(value);
+    // Prefer a real <a> click — more reliable than window.open in iOS PWAs / WebViews.
+    try {
+      const a = document.createElement('a');
+      a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch {
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
     toast('Login ouvert — reviens ici après', true);
     return;
   }
   if (kind === 'copy' && value) {
+    const text = sanitizeAuthUrl(value) || value;
     try {
-      await navigator.clipboard.writeText(value);
-      toast('Copié', true);
+      await navigator.clipboard.writeText(text);
+      toast(text.startsWith('http') ? `Lien copié (${text.length} car.)` : 'Copié', true);
     } catch { toast('Copie impossible — sélectionne le texte'); }
     return;
   }
