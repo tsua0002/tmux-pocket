@@ -179,25 +179,45 @@ function piLocateScript(c, t) {
     `cwd=$(${tm} display -p -t ${target(t)} '#{pane_current_path}')`,
     'pid=$(pgrep -P "$pp" -x pi | head -1); [ -n "$pid" ] || pid=$(pgrep -P "$pp" node | head -1); [ -n "$pid" ] || pid=$pp',
     'echo "now $(date +%s) age $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d \' \')"',
-    'dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions/--$(printf %s "$cwd" | sed \'s#^/##; s#[/\\\\:]#-#g\')--"',
-    'ls -t "$dir"/*.jsonl 2>/dev/null | head -20 | while IFS= read -r f; do echo "f $(stat -c \'%Y %s\' "$f") $f"; done',
+    'echo "cwd $cwd"',
+    'agent="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"',
+    'safe="--$(printf %s "$cwd" | sed \'s#^/##; s#[/\\\\:]#-#g\')--"',
+    // Prefer explicit session dir, then cwd-encoded folder, then any recent session (mtime).
+    'for dir in "${PI_CODING_AGENT_SESSION_DIR:-}" "$agent/sessions/$safe"; do',
+    '  [ -n "$dir" ] && [ -d "$dir" ] || continue',
+    '  ls -t "$dir"/*.jsonl 2>/dev/null | head -20 | while IFS= read -r f; do echo "f $(stat -c \'%Y %s\' "$f") $f"; done',
+    'done',
+    'find "$agent/sessions" -type f -name \'*.jsonl\' -mtime -14 2>/dev/null | head -40 | while IFS= read -r f; do',
+    '  echo "f $(stat -c \'%Y %s\' "$f") $f"',
+    'done',
     'true',
   ].join('\n');
 }
 
 function pickPiSession(out) {
   const head = /^now (\d+) age (\d*)/m.exec(out);
-  const files = [...out.matchAll(/^f (\d+) (\d+) (.+)$/gm)].map(([, mtime, size, p]) => {
+  const cwdLine = /^cwd (.+)$/m.exec(out);
+  const cwdHint = cwdLine ? cwdLine[1].trim() : '';
+  const seen = new Map();
+  for (const [, mtime, size, p] of out.matchAll(/^f (\d+) (\d+) (.+)$/gm)) {
     const m = /(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)-(\d+)Z_[^/]*\.jsonl$/.exec(p);
     const created = m ? Date.parse(`${m[1]}:${m[2]}:${m[3]}.${m[4]}Z`) / 1000 : 0;
-    return { path: p, mtime: +mtime, size: +size, created };
-  });
+    const prev = seen.get(p);
+    if (!prev || +mtime > prev.mtime) seen.set(p, { path: p, mtime: +mtime, size: +size, created });
+  }
+  const files = [...seen.values()];
   if (!files.length) return null;
   const started = head && head[2] ? +head[1] - +head[2] : 0;
   // Sessions created after this pi process started (±10s). Prefer newest *created*
   // so /new (fresh jsonl) wins over an older file that still gets occasional mtime bumps.
   const own = files.filter((f) => started && f.created >= started - 10);
-  const pool = own.length ? own : files;
+  let pool = own.length ? own : files;
+  // When falling back across all recent sessions, prefer the pane cwd folder.
+  if (!own.length && cwdHint) {
+    const safe = `--${cwdHint.replace(/^\/+/, '').replace(/[/\\:]/g, '-')}--`;
+    const inCwd = pool.filter((f) => f.path.includes(`/${safe}/`) || f.path.includes(`\\${safe}\\`));
+    if (inCwd.length) pool = inCwd;
+  }
   return pool.sort((a, b) => (b.created - a.created) || (b.mtime - a.mtime))[0];
 }
 
@@ -326,6 +346,11 @@ function codeafConversation(cache) {
   return { model, name: cache.name || null, total: messages.length, messages: messages.slice(-200) };
 }
 
+function piBlocks(content) {
+  if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
+  return Array.isArray(content) ? content : [];
+}
+
 function piIngest(cache, line) {
   if (!line.trim()) return;
   let e;
@@ -333,42 +358,74 @@ function piIngest(cache, line) {
   if (e.type === 'session') { cache.header = { cwd: e.cwd, id: e.id }; return; }
   if (!e.id) return;
   // Keep only what the phone shows, so long sessions stay small in memory.
-  const slim = { type: e.type, id: e.id, parentId: e.parentId, timestamp: e.timestamp };
-  const m = e.message;
-  if (e.type === 'message' && m) {
-    if (m.role === 'system') return void (slim.skip = true, cache.entries.set(e.id, slim), cache.order.push(e.id));
-    slim.role = m.role;
-    if (m.role === 'user') slim.text = textOf(m.content);
-    if (m.role === 'assistant') {
-      const blocks = m.content || [];
-      slim.text = textOf(blocks);
-      slim.thinking = clip(blocks.filter((b) => b.type === 'thinking').map((b) => b.thinking || '').join('\n'), 4000);
-      slim.tools = blocks.filter((b) => b.type === 'toolCall')
-        .map((b) => ({ id: b.id, name: b.name, args: clip(JSON.stringify(b.arguments ?? {}), 400) }));
-      slim.model = m.model;
-      if (m.stopReason === 'error' || m.errorMessage) slim.error = m.errorMessage || 'error';
-      if (m.stopReason === 'aborted') slim.aborted = true;
+  const slim = { type: e.type, id: e.id, parentId: e.parentId ?? null, timestamp: e.timestamp };
+  try {
+    const m = e.message;
+    if (e.type === 'message' && m) {
+      if (m.role === 'system') {
+        slim.skip = true;
+        cache.entries.set(e.id, slim);
+        cache.order.push(e.id);
+        return;
+      }
+      // v3 renamed hookMessage → custom; show as a quiet note.
+      if (m.role === 'custom' || m.role === 'hookMessage') {
+        slim.role = 'note';
+        slim.text = clip(textOf(m.content), 2000);
+      } else if (m.role === 'user') {
+        slim.role = 'user';
+        slim.text = textOf(m.content);
+      } else if (m.role === 'assistant') {
+        const blocks = piBlocks(m.content);
+        slim.role = 'assistant';
+        slim.text = textOf(blocks);
+        slim.thinking = clip(blocks.filter((b) => b && (b.type === 'thinking' || b.type === 'reasoning')).map((b) => b.thinking || b.text || '').join('\n'), 4000);
+        slim.tools = blocks.filter((b) => b && (b.type === 'toolCall' || b.type === 'tool_use'))
+          .map((b) => ({ id: b.id, name: b.name, args: clip(JSON.stringify(b.arguments ?? b.input ?? {}), 400) }));
+        slim.model = m.model;
+        if (m.stopReason === 'error' || m.errorMessage) slim.error = m.errorMessage || 'error';
+        if (m.stopReason === 'aborted') slim.aborted = true;
+      } else if (m.role === 'toolResult') {
+        slim.role = 'toolResult';
+        slim.toolCallId = m.toolCallId;
+        slim.output = clip(textOf(m.content), 3000);
+        slim.isError = !!m.isError;
+      } else if (m.role === 'bashExecution') {
+        slim.role = 'bash';
+        slim.text = m.command;
+        slim.output = clip(m.output, 3000);
+      } else {
+        slim.skip = true;
+      }
+    } else if (e.type === 'custom_message' && e.display) {
+      slim.role = 'note'; slim.text = clip(textOf(e.content), 2000);
+    } else if (e.type === 'branch_summary' && e.summary) {
+      slim.role = 'note'; slim.text = clip(String(e.summary), 2000);
+    } else if (e.type === 'compaction') {
+      slim.role = 'note'; slim.text = 'Conversation compacted';
+    } else if (e.type === 'model_change') {
+      slim.model = e.modelId;
+    } else if (e.type === 'session_info') {
+      slim.name = e.name;
     }
-    if (m.role === 'toolResult') { slim.toolCallId = m.toolCallId; slim.output = clip(textOf(m.content), 3000); slim.isError = !!m.isError; }
-    if (m.role === 'bashExecution') { slim.role = 'bash'; slim.text = m.command; slim.output = clip(m.output, 3000); }
-  } else if (e.type === 'custom_message' && e.display) {
-    slim.role = 'note'; slim.text = clip(textOf(e.content), 2000);
-  } else if (e.type === 'compaction') {
-    slim.role = 'note'; slim.text = 'Conversation compacted';
-  } else if (e.type === 'model_change') {
-    slim.model = e.modelId;
-  } else if (e.type === 'session_info') {
-    slim.name = e.name;
+  } catch {
+    slim.skip = true;
   }
   cache.entries.set(e.id, slim);
   cache.order.push(e.id);
 }
 
-// The active branch is the path from the last appended entry back to the root.
+// The active branch is the path from the latest message-like entry back to the root.
 function piConversation(cache) {
+  let leaf = null;
+  for (let i = cache.order.length - 1; i >= 0; i--) {
+    const e = cache.entries.get(cache.order[i]);
+    if (e && !e.skip && e.role && e.role !== 'toolResult') { leaf = e.id; break; }
+  }
+  if (!leaf) leaf = cache.order[cache.order.length - 1];
   const path = [];
   const seen = new Set();
-  for (let id = cache.order[cache.order.length - 1]; id && !seen.has(id); id = cache.entries.get(id)?.parentId) {
+  for (let id = leaf; id && !seen.has(id); id = cache.entries.get(id)?.parentId) {
     seen.add(id);
     const e = cache.entries.get(id);
     if (!e) break;
@@ -376,19 +433,24 @@ function piConversation(cache) {
   }
   path.reverse();
   let model = null, name = null;
-  for (const e of cache.order.map((id) => cache.entries.get(id))) if (e.name) name = e.name;
+  for (const e of cache.order.map((id) => cache.entries.get(id))) if (e?.name) name = e.name;
   const results = new Map();
   for (const e of path) if (e.role === 'toolResult') results.set(e.toolCallId, e);
   const messages = [];
   for (const e of path) {
     if (e.model) model = e.model;
     if (e.skip || !e.role || e.role === 'toolResult') continue;
-    const msg = { id: e.id, role: e.role, text: e.text, ts: e.timestamp };
+    const msg = { id: e.id, role: e.role, text: e.text || '', ts: e.timestamp };
     if (e.role === 'assistant') {
       if (e.thinking) msg.thinking = e.thinking;
       if (e.error) msg.error = e.error;
       if (e.aborted) msg.aborted = true;
-      msg.tools = e.tools.map((t) => ({ ...t, output: results.get(t.id)?.output, isError: results.get(t.id)?.isError, done: results.has(t.id) }));
+      msg.tools = (e.tools || []).map((t) => ({
+        ...t,
+        output: results.get(t.id)?.output,
+        isError: results.get(t.id)?.isError,
+        done: results.has(t.id),
+      }));
     }
     if (e.role === 'bash') msg.output = e.output;
     messages.push(msg);
@@ -819,5 +881,6 @@ if (require.main === module) {
 module.exports = {
   ops, server, q, getBridgeKey, verifyHost, generateKey, keyOk,
   pickPiSession, pickCodeafSession, encodeCodeafWorkspace, codeafIngest, codeafConversation,
+  piIngest, piConversation,
   agentChat, persist,
 };
